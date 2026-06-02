@@ -1,0 +1,21 @@
+name: PerPlayerProfiles
+version: '${version}'
+main: es.mrdino.perplayerprofiles.PerPlayerProfilesPlugin
+api-version: '1.20'
+author: MrDino
+description: Multiple server profiles per Minecraft account.
+softdepend:
+  - ServerPassword
+commands:
+  profiles:
+    description: Manage player profiles.
+    usage: /profiles help
+    aliases:
+      - ppp
+      - pprofile
+      - perfil
+      - perfiles
+permissions:
+  perplayerprofiles.admin:
+    description: Allows administrative profile operations.
+    default: op
