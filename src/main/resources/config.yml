@@ -1,13 +1,149 @@
+# ============================================================
+# PerPlayerProfiles
+# Author: MrDino
+# Website: https://www.mrdino.es/ppp
+#
+# One Minecraft account, multiple independent server profiles.
+#
+# Notes:
+# - Existing config values are preserved during plugin updates.
+# - New missing options are added automatically.
+# - Language files are refreshed by the plugin on startup.
+# - Use '&' color codes in configurable messages.
+# ============================================================
+
+# Language used by plugin messages.
+# Available: en, es, de, fr
+language: en
+
+# Core profile behavior.
 profiles:
+  # Maximum profiles that one Minecraft account can own.
   max-per-account: 3
-  master-profile-name: master
+
+  # Name used for the first/master profile of new accounts.
+  # {player} means the real Minecraft account name.
+  master-profile-name: '{player}'
+
+  # Saves online profile state every X minutes.
   auto-save-minutes: 5
+
+  # Reserved for profile switch cooldown behavior.
   switch-cooldown-seconds: 3
+
+  # Opens the selector when joining if the account has multiple profiles.
   open-selector-on-join: true
+
+  # If true, the last valid profile is loaded first, but the player must still choose a profile.
+  require-selection-on-join: true
+
+  # Maximum seconds to wait for login/security plugins before opening the selector.
   selector-auth-wait-seconds: 60
+
+  # If true, creating profiles requires the master PIN when one is configured.
   require-master-pin-to-create: false
 
-language: en
+# Visual and command identity.
+profile-identity:
+  # Master switch for profile names acting like visible player names.
+  enabled: true
+
+  # Display name format.
+  # Placeholders: {profile}
+  display-name-format: '{profile}'
+
+  # Shows the profile name in the tab list.
+  tab-list:
+    enabled: true
+
+  # Shows the profile name as a custom nametag where Bukkit supports it.
+  nametag:
+    enabled: true
+
+  # Chat formatting.
+  # Placeholders: {display_name}, {profile}, {player}, {uuid}, {virtual_uuid}, {message}
+  chat:
+    enabled: true
+    format: '&7<{display_name}&7> &f{message}'
+
+  # Public join/leave-style messages for profile identity.
+  # Placeholders: {display_name}, {profile}, {player}, {uuid}, {virtual_uuid}
+  join-leave:
+    enabled: true
+    # Use lang:<key> to load the message from lang/*.yml.
+    # You can also put a fixed custom text here if you do not want it translated.
+    join-format: 'lang:profile-join-message'
+    leave-format: 'lang:profile-leave-message'
+
+  # Console/admin log emitted when a player switches profile.
+  # Placeholders: {player}, {uuid}, {old_profile}, {new_profile}, {old_virtual_uuid}, {new_virtual_uuid}
+  profile-switch-log:
+    enabled: true
+    format: '&f{player} &7switched profile &c{old_profile} &8-> &a{new_profile} &8({uuid})'
+
+  # Optional PerPlayerProfiles command log.
+  # Bukkit/Spigot already logs commands as "issued server command".
+  # Bukkit does not allow plugins to edit that built-in line.
+  #
+  # To have ONE command log line with profile identity:
+  # 1) Set this option to true.
+  # 2) In spigot.yml, set:
+  #    commands:
+  #      log: false
+  #
+  # Placeholders: {player}, {profile}, {player_with_profile}, {uuid}, {virtual_uuid},
+  # {command}, {rewritten_command}, {handled_by_plugin}
+  command-log:
+    enabled: false
+    allow-duplicate-console-log: false
+    format: '&f{player_with_profile} &7issued server command: &e{command}'
+    redact-commands:
+      - login
+      - register
+      - changepassword
+      - profiles
+      - ppp
+      - pprofile
+      - perfil
+      - perfiles
+
+  # Commands where profile names should be resolved to real online account names.
+  # Numbers are zero-based argument indexes.
+  # Example: /tp <target> => tp: [0]
+  commands:
+    enabled: true
+    rewrite:
+      tp:
+        - 0
+        - 1
+      teleport:
+        - 0
+        - 1
+      tphere:
+        - 0
+      tpa:
+        - 0
+      tpahere:
+        - 0
+      msg:
+        - 0
+      tell:
+        - 0
+      w:
+        - 0
+      whisper:
+        - 0
+      give:
+        - 0
+      gamemode:
+        - 1
+      kill:
+        - 0
+      ban:
+        - 0
+      kick:
+        - 0
+      list: []
 
 compatibility:
   server-password:

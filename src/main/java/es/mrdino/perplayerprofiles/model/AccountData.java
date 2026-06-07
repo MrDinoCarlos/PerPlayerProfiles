@@ -5,6 +5,7 @@ import java.util.Map;
 
 public class AccountData {
     private String masterPasswordHash;
+    private String lastActiveProfileName;
     private final Map<String, ProfileMeta> profiles = new LinkedHashMap<>();
 
     public String getMasterPasswordHash() {
@@ -17,6 +18,15 @@ public class AccountData {
 
     public boolean hasMasterPassword() {
         return masterPasswordHash != null && !masterPasswordHash.isBlank();
+    }
+
+    public String getLastActiveProfileName() {
+        return lastActiveProfileName;
+    }
+
+    public void setLastActiveProfileName(String lastActiveProfileName) {
+        String normalizedName = normalizeName(lastActiveProfileName);
+        this.lastActiveProfileName = normalizedName.isBlank() ? null : normalizedName;
     }
 
     public Map<String, ProfileMeta> getProfiles() {
@@ -36,7 +46,12 @@ public class AccountData {
     }
 
     public ProfileMeta removeProfile(String name) {
-        return profiles.remove(normalizeName(name));
+        String normalizedName = normalizeName(name);
+        ProfileMeta removed = profiles.remove(normalizedName);
+        if (normalizedName.equals(lastActiveProfileName)) {
+            lastActiveProfileName = null;
+        }
+        return removed;
     }
 
     public ProfileMeta getMasterProfile(String fallbackName) {

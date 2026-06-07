@@ -98,6 +98,7 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
             return;
         }
         ProfileMeta profile = new ProfileMeta(name);
+        profile.ensureVirtualUuid(player.getUniqueId());
         if ((!account.hasMasterPassword() && args.length >= 3) || (account.hasMasterPassword() && args.length >= 4)) {
             if (!validPassword(player, args[2])) {
                 return;
@@ -282,7 +283,7 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
 
     private String normalizeProfileName(String input) {
         String name = input == null ? "" : input.trim();
-        if (name.length() < 2 || name.length() > 24 || !name.matches("[A-Za-z0-9_-]+")) {
+        if (name.length() < 2 || name.length() > 16 || !name.matches("[A-Za-z0-9_]+")) {
             return null;
         }
         return name;

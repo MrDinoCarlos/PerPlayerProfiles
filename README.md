@@ -15,6 +15,8 @@ Each profile can have its own inventory, experience, location, statistics, play-
 - Independent saved state per profile.
 - Visual GUI-based profile selector.
 - Short command alias: `/ppp`.
+- Active profile names can be used as player targets in configured commands such as `/tp`, `/msg`, `/give`, and `/gamemode`.
+- Profile switches are logged as profile changes instead of fake disconnect/connect events.
 - Multi-language support.
 - Visual numeric PIN pad with custom heads.
 - Configurable profile icons using custom heads.
@@ -114,6 +116,8 @@ profiles:
 
 The first profile created for an account is the master profile.
 
+By default, a new account's master profile uses the real Minecraft player name instead of the literal name `master`.
+
 The master profile:
 
 - Can create profiles.
@@ -195,12 +199,13 @@ The selector can automatically open when the player joins:
 ```yml
 profiles:
   open-selector-on-join: true
+  require-selection-on-join: true
 ```
 
 Rules:
 
 - If the account only has one profile, the selector does not open.
-- If the account has more than one profile, the selector opens on join.
+- If `require-selection-on-join` is enabled and the account has more than one profile, the last valid profile is loaded first and the selector still opens.
 - If the player presses ESC without selecting a profile, the GUI opens again.
 - The player must select a profile.
 - If a login/security GUI is open, the selector waits.

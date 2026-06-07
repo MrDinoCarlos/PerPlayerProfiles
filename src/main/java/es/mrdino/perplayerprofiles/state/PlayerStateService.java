@@ -1,10 +1,15 @@
 package es.mrdino.perplayerprofiles.state;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Statistic;
+import org.bukkit.advancement.Advancement;
+import org.bukkit.advancement.AdvancementProgress;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.configuration.ConfigurationSection;
@@ -37,6 +42,7 @@ public class PlayerStateService {
         yaml.set("remaining-air", player.getRemainingAir());
         yaml.set("potion-effects", new ArrayList<>(player.getActivePotionEffects()));
         saveUntypedStatistics(player, yaml.createSection("statistics"));
+        saveAdvancements(player, yaml.createSection("advancements"));
         return yaml;
     }
 
@@ -70,6 +76,7 @@ public class PlayerStateService {
 
         applyHealth(player, yaml.getDouble("health", getMaxHealth(player)));
         applyUntypedStatistics(player, yaml.getConfigurationSection("statistics"));
+        applyAdvancements(player, yaml.getConfigurationSection("advancements"));
 
         Location location = yaml.getLocation("location");
         if (location != null && location.getWorld() != null) {
@@ -113,6 +120,7 @@ public class PlayerStateService {
                 statistics.set(statistic.name(), 0);
             }
         }
+        yaml.createSection("advancements");
         return yaml;
     }
 
@@ -140,6 +148,49 @@ public class PlayerStateService {
                 }
             } catch (IllegalArgumentException ignored) {
                 // Ignore statistics removed or renamed by newer Minecraft versions.
+            }
+        }
+    }
+
+    private void saveAdvancements(Player player, ConfigurationSection section) {
+        Iterator<Advancement> advancements = Bukkit.advancementIterator();
+        while (advancements.hasNext()) {
+            Advancement advancement = advancements.next();
+            AdvancementProgress progress = player.getAdvancementProgress(advancement);
+            List<String> awardedCriteria = new ArrayList<>();
+            for (String criterion : progress.getAwardedCriteria()) {
+                awardedCriteria.add(criterion);
+            }
+            if (!awardedCriteria.isEmpty()) {
+                section.set(advancement.getKey().toString(), awardedCriteria);
+            }
+        }
+    }
+
+    private void applyAdvancements(Player player, ConfigurationSection section) {
+        Iterator<Advancement> advancements = Bukkit.advancementIterator();
+        while (advancements.hasNext()) {
+            Advancement advancement = advancements.next();
+            AdvancementProgress progress = player.getAdvancementProgress(advancement);
+            for (String criterion : new ArrayList<>(progress.getAwardedCriteria())) {
+                progress.revokeCriteria(criterion);
+            }
+        }
+        if (section == null) {
+            return;
+        }
+        for (String key : section.getKeys(false)) {
+            Advancement advancement = Bukkit.getAdvancement(NamespacedKey.fromString(key));
+            if (advancement == null) {
+                continue;
+            }
+            AdvancementProgress progress = player.getAdvancementProgress(advancement);
+            for (String criterion : section.getStringList(key)) {
+                try {
+                    progress.awardCriteria(criterion);
+                } catch (IllegalArgumentException ignored) {
+                    // Ignore criteria removed or renamed by newer Minecraft versions.
+                }
             }
         }
     }

@@ -510,7 +510,9 @@ public class ProfileGuiManager implements Listener {
             openMain(player);
             return;
         }
-        account.putProfile(new ProfileMeta(name));
+        ProfileMeta profile = new ProfileMeta(name);
+        profile.ensureVirtualUuid(player.getUniqueId());
+        account.putProfile(profile);
         account.getProfile(name).setIconKey(defaultIconKey());
         account.sortMasterFirst(plugin.getMasterProfileName());
         plugin.saveAccount(player.getUniqueId());
@@ -542,6 +544,7 @@ public class ProfileGuiManager implements Listener {
         account.sortMasterFirst(plugin.getMasterProfileName());
         plugin.renameProfileState(player.getUniqueId(), oldName, newName);
         plugin.updateActiveProfileName(player, oldName, newName);
+        plugin.applyProfileIdentity(player, newName);
         plugin.saveAccount(player.getUniqueId());
         plugin.send(player, "profile-renamed", "old", oldName, "new", newName);
         openProfileSettings(player, newName);
@@ -984,7 +987,7 @@ public class ProfileGuiManager implements Listener {
 
     private String normalizeProfileName(String input) {
         String name = input == null ? "" : input.trim();
-        if (name.length() < 2 || name.length() > 24 || !name.matches("[A-Za-z0-9_-]+")) {
+        if (name.length() < 2 || name.length() > 16 || !name.matches("[A-Za-z0-9_]+")) {
             return null;
         }
         return name;

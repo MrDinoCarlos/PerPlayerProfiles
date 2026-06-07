@@ -1,8 +1,52 @@
+# ============================================================
+# PerPlayerProfiles language file
+# File: fr.yml
+# Author: MrDino
+# Website: https://www.mrdino.es/ppp
+#
+# Notes:
+# - Use & color codes.
+# - Keep placeholders such as {profile}, {player}, {time}.
+# - Language files are refreshed on plugin startup.
+# ============================================================
+
+# Header
 prefix: '&8[&aProfiles&8] &7'
+
+# General messages
 only-players: 'Cette commande ne peut etre utilisee que par un joueur.'
 profile-not-found: '&cCe profil n existe pas.'
 profile-no-time: '&cCe profil n a plus de temps de jeu disponible pour le moment.'
 profile-active: 'Profil actif : &f{profile}'
+profiles-list: 'Profils : {profiles}'
+invalid-profile-name: '&cLe nom doit faire 2-16 caracteres et ne peut utiliser que lettres, chiffres et _.'
+profile-exists: '&cCe profil existe deja.'
+max-profiles: '&cTu as atteint la limite de profils : &f{max}'
+
+# Profile lifecycle
+profile-created: 'Profil cree : &f{profile}'
+profile-deleted: 'Profil supprime : &f{profile}'
+profile-renamed: 'Profil &f{old}&7 renomme en &f{new}&7.'
+profile-master-rename: 'Le profil master ne peut pas etre renomme.'
+profile-locked: 'Profil verrouille : &f{profile}'
+profile-unlocked: 'Profil deverrouille : &f{profile}'
+profile-password-updated: 'PIN du profil mis a jour : &f{profile}'
+profile-icon-updated: 'Icone de &f{profile}&7 changee en &f{icon}&7.'
+
+# Permissions and validation
+profile-password-wrong: '&cPIN incorrect pour ce profil.'
+password-wrong: '&cPIN incorrect.'
+master-password-required: '&cLe PIN master est requis pour cette action.'
+master-profile-required: '&cSeul le profil master peut modifier les profils.'
+master-profile-time-required: '&cSeul le profil master peut changer les limites de temps.'
+profile-self-edit-required: '&cTu peux modifier cela seulement depuis le profil actif ou le master.'
+profile-master-delete: '&cTu ne peux pas supprimer le profil master.'
+master-password-updated: 'PIN master mis a jour.'
+password-too-short: '&cLe PIN doit contenir au moins &f{min} &cchiffres.'
+pin-too-long: '&cLe PIN peut contenir au maximum &f{max} &cchiffres.'
+pin-only-numbers: '&cLe PIN ne peut utiliser que des chiffres.'
+
+# Time limits
 profile-time-expired: 'Le temps de ce profil est epuise.'
 profile-time-expired-kick: |-
   &c&lTEMPS DE JEU MAXIMUM ATTEINT
@@ -10,7 +54,12 @@ profile-time-expired-kick: |-
   &7Renouvelle dans : &e{renew}
   &8Reviens quand ce profil sera disponible.
 time-warning-actionbar: 'Temps restant : {time}'
-profiles-list: 'Profils : {profiles}'
+limit-applied: 'Limite appliquee a &f{profile}&7 : &f{minutes} min &7toutes les &f{hours} h'
+time-usage-reset: 'Compteur de temps reinitialise pour &f{profile}&7.'
+time-must-be-numbers: '&cLes temps doivent etre des nombres.'
+time-limit-disabled: 'Limite de temps desactivee pour &f{profile}&7.'
+
+# Command usage and help
 usage-create: 'Utilisation : &f/profiles create <nom> [motDePasse]'
 usage-use: 'Utilisation : &f/profiles use <nom> [motDePasse]'
 usage-delete: 'Utilisation : &f/profiles delete <nom> [masterPassword]'
@@ -18,32 +67,6 @@ usage-lock: 'Utilisation : &f/profiles lock <nom> <motDePasse>'
 usage-unlock: 'Utilisation : &f/profiles unlock <nom> <motDePasseActuel>'
 usage-master-password: 'Utilisation : &f/profiles setmasterpassword <motDePasse>'
 usage-limit: 'Utilisation : &f/profiles setlimit <profil> <minutesMax> <renouvelleToutesLesHeures> [masterPassword]'
-invalid-profile-name: '&cLe nom ne peut utiliser que des lettres, des chiffres, _ et -.'
-profile-exists: '&cCe profil existe deja.'
-max-profiles: '&cTu as atteint la limite de profils : &f{max}'
-profile-created: 'Profil cree : &f{profile}'
-profile-password-wrong: '&cPIN incorrect pour ce profil.'
-profile-master-delete: '&cTu ne peux pas supprimer le profil master.'
-profile-deleted: 'Profil supprime : &f{profile}'
-profile-locked: 'Profil verrouille : &f{profile}'
-profile-unlocked: 'Profil deverrouille : &f{profile}'
-profile-password-updated: 'PIN du profil mis a jour : &f{profile}'
-password-wrong: '&cPIN incorrect.'
-master-password-updated: 'PIN master mis a jour.'
-limit-applied: 'Limite appliquee a &f{profile}&7 : &f{minutes} min &7toutes les &f{hours} h'
-time-usage-reset: 'Compteur de temps reinitialise pour &f{profile}&7.'
-time-must-be-numbers: '&cLes temps doivent etre des nombres.'
-master-password-required: '&cLe PIN master est requis pour cette action.'
-master-profile-required: '&cSeul le profil master peut modifier les profils.'
-master-profile-time-required: '&cSeul le profil master peut changer les limites de temps.'
-profile-self-edit-required: '&cTu peux modifier cela seulement depuis le profil actif ou le master.'
-password-too-short: '&cLe PIN doit contenir au moins &f{min} &cchiffres.'
-pin-too-long: '&cLe PIN peut contenir au maximum &f{max} &cchiffres.'
-pin-only-numbers: '&cLe PIN ne peut utiliser que des chiffres.'
-pin-error-title: '&c&lERREUR PIN'
-pin-error-item-name: '&c&lPIN invalide'
-pin-error-item-lore:
-  - '&7Verifie le PIN et reessaie.'
 help-list: '&f/profiles list &7- voir les profils'
 help-create: '&f/profiles create <nom> [motDePasse] &7- creer un profil'
 help-use: '&f/profiles use <nom> [motDePasse] &7- changer de profil'
@@ -51,17 +74,26 @@ help-delete: '&f/profiles delete <nom> [masterPassword] &7- supprimer un profil'
 help-lock: '&f/profiles lock/unlock <nom> <motDePasse> &7- proteger un profil'
 help-master-password: '&f/profiles setmasterpassword <motDePasse> &7- mot de passe master'
 help-limit: '&f/profiles setlimit <profil> <minutes> <heuresRenouvellement> [masterPassword] &7- limite de temps'
+
+# Server/profile identity
+profile-join-message: '&e{display_name} a rejoint le serveur'
+profile-leave-message: '&e{display_name} a quitte le serveur'
+server-list: '&7Il y a &f{online}&7 joueurs sur un maximum de &f{max}&7 en ligne : &f{players}'
+teleport-to-player: '&7Teleporte vers &f{target}&7.'
+teleport-player-to-player: '&7Teleporte &f{source} &7vers &f{target}&7.'
+teleport-player-to-location: '&7Teleporte &f{source} &7vers &f{x}&7, &f{y}&7, &f{z}&7.'
+
+# GUI titles
 gui-main-title: '&0PerPlayerProfiles'
 gui-profile-title: '&0Profil - {profile}'
 gui-icons-title: '&0Icone - {profile}'
+gui-time-title: '&0Temps - {profile}'
+
+# GUI profile list
 gui-create-name: '&aCreer un profil'
 gui-create-lore:
   - '&7Clique pour creer un nouveau profil.'
   - '&8Tu entreras le nom dans le chat.'
-gui-master-password-name: '&ePIN master'
-gui-master-password-lore:
-  - '&7Clique pour le definir ou le remplacer.'
-  - '&8Utilise pour les actions sensibles.'
 gui-profile-name: '&f{profile}'
 gui-profile-active-name: '&a{profile} &7(actif)'
 gui-profile-lore-locked: '&cVerrouille par mot de passe'
@@ -75,6 +107,8 @@ gui-profile-lore-time-left: '&eTemps de session restant : &f{time}'
 gui-profile-lore-unlocks-in: '&cRejouable dans : &f{time}'
 gui-profile-lore-left: '&fClic gauche &7pour utiliser'
 gui-profile-lore-right: '&fClic droit &7pour configurer'
+
+# GUI profile actions
 gui-use-name: '&aUtiliser le profil'
 gui-use-lore:
   - '&7Sauvegarde le profil actuel et charge celui-ci.'
@@ -95,7 +129,19 @@ gui-limit-lore:
 gui-rename-name: '&bRenommer le profil'
 gui-rename-lore:
   - '&7Change le nom de ce profil.'
-gui-time-title: '&0Temps - {profile}'
+gui-delete-name: '&cSupprimer le profil'
+gui-delete-lore:
+  - '&7Supprime les donnees du profil.'
+  - '&cCette action est definitive.'
+gui-back-name: '&7Retour'
+gui-back-lore:
+  - '&7Retour a la liste des profils.'
+gui-master-password-name: '&ePIN master'
+gui-master-password-lore:
+  - '&7Clique pour le definir ou le remplacer.'
+  - '&8Utilise pour les actions sensibles.'
+
+# GUI time editor
 gui-time-max-name: '&eTemps max : &f{minutes} min'
 gui-time-max-lore:
   - '&7Mets 0 pour desactiver la limite.'
@@ -121,6 +167,8 @@ gui-time-reset-lore:
   - '&7Remet le temps joue a 0.'
   - '&7Redemarre aussi le compte a rebours de renouvellement.'
   - '&cSeul le master peut l utiliser.'
+
+# GUI icons
 gui-icon-name: '&bIcone du profil'
 gui-icon-lore:
   - '&7Choisis la tete affichee dans la liste.'
@@ -131,6 +179,12 @@ gui-icon-choice-lore:
 gui-icon-selected-name: '&a{icon} &7(selectionnee)'
 gui-icon-selected-lore:
   - '&aCette icone est actuellement active.'
+
+# GUI PIN input
+pin-error-title: '&c&lERREUR PIN'
+pin-error-item-name: '&c&lPIN invalide'
+pin-error-item-lore:
+  - '&7Verifie le PIN et reessaie.'
 gui-pin-digit-lore:
   - '&7Clique pour ajouter ce chiffre.'
 gui-password-display-name: '&ePIN : &f{length}&7/&f{min}-{max}'
@@ -144,13 +198,8 @@ gui-password-cancel-lore:
 gui-password-confirm-name: '&aConfirmer'
 gui-password-confirm-lore:
   - '&7Utiliser ce PIN.'
-gui-delete-name: '&cSupprimer le profil'
-gui-delete-lore:
-  - '&7Supprime les donnees du profil.'
-  - '&cCette action est definitive.'
-gui-back-name: '&7Retour'
-gui-back-lore:
-  - '&7Retour a la liste des profils.'
+
+# Chat prompts
 prompt-create-profile: 'Entre le nom du nouveau profil dans le chat.'
 prompt-rename-profile: 'Entre le nouveau nom de &f{profile}&7 dans le chat.'
 prompt-profile-password: '&0PIN - {profile}'
@@ -162,7 +211,3 @@ prompt-master-password-required: '&0PIN master'
 prompt-profile-limit: 'Entre les minutes max et les heures de renouvellement pour &f{profile}&7. Exemple : &f60 24'
 prompt-cancel: 'Ecris &fcancel &7pour annuler.'
 prompt-cancelled: 'Action annulee.'
-profile-icon-updated: 'Icone de &f{profile}&7 changee en &f{icon}&7.'
-profile-renamed: 'Profil &f{old}&7 renomme en &f{new}&7.'
-profile-master-rename: 'Le profil master ne peut pas etre renomme.'
-time-limit-disabled: 'Limite de temps desactivee pour &f{profile}&7.'

@@ -1,5 +1,7 @@
 package es.mrdino.perplayerprofiles.model;
 
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import org.bukkit.configuration.ConfigurationSection;
 
 public class ProfileMeta {
@@ -7,6 +9,7 @@ public class ProfileMeta {
     private boolean master;
     private String passwordHash;
     private String iconKey;
+    private String virtualUuid;
     private long maxPlayMillis;
     private long renewMillis;
     private long windowStartedAt;
@@ -22,6 +25,7 @@ public class ProfileMeta {
         meta.master = section.getBoolean("master", false);
         meta.passwordHash = section.getString("password-hash", null);
         meta.iconKey = section.getString("icon-key", null);
+        meta.virtualUuid = section.getString("virtual-uuid", null);
         meta.maxPlayMillis = section.getLong("time.max-play-millis", 0L);
         meta.renewMillis = section.getLong("time.renew-millis", 0L);
         meta.windowStartedAt = section.getLong("time.window-started-at", System.currentTimeMillis());
@@ -34,6 +38,7 @@ public class ProfileMeta {
         section.set("master", master);
         section.set("password-hash", passwordHash);
         section.set("icon-key", iconKey);
+        section.set("virtual-uuid", virtualUuid);
         section.set("time.max-play-millis", maxPlayMillis);
         section.set("time.renew-millis", renewMillis);
         section.set("time.window-started-at", windowStartedAt);
@@ -74,6 +79,23 @@ public class ProfileMeta {
 
     public void setIconKey(String iconKey) {
         this.iconKey = iconKey;
+    }
+
+    public UUID getVirtualUuid() {
+        try {
+            return virtualUuid == null || virtualUuid.isBlank() ? null : UUID.fromString(virtualUuid);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    public UUID ensureVirtualUuid(UUID accountUuid) {
+        UUID uuid = getVirtualUuid();
+        if (uuid == null) {
+            uuid = UUID.nameUUIDFromBytes(("perplayerprofiles:" + accountUuid + ":" + UUID.randomUUID()).getBytes(StandardCharsets.UTF_8));
+            virtualUuid = uuid.toString();
+        }
+        return uuid;
     }
 
     public long getMaxPlayMillis() {

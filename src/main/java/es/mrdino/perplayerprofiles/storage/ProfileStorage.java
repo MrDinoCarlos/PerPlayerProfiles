@@ -24,6 +24,7 @@ public class ProfileStorage {
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
         AccountData account = new AccountData();
         account.setMasterPasswordHash(yaml.getString("master-password-hash", null));
+        account.setLastActiveProfileName(yaml.getString("last-active-profile", null));
 
         ConfigurationSection profiles = yaml.getConfigurationSection("profiles");
         if (profiles != null) {
@@ -42,6 +43,7 @@ public class ProfileStorage {
         File file = accountFile(uuid);
         YamlConfiguration yaml = new YamlConfiguration();
         yaml.set("master-password-hash", account.getMasterPasswordHash());
+        yaml.set("last-active-profile", account.getLastActiveProfileName());
         for (ProfileMeta profile : account.getProfiles().values()) {
             ConfigurationSection section = yaml.createSection("profiles." + profile.getName());
             profile.saveTo(section);
