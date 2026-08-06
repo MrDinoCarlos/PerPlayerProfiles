@@ -147,6 +147,7 @@ profile-identity:
 
 compatibility:
   server-password:
+    # If true, profile state and the selector wait until ServerPassword authentication finishes.
     wait-for-auth: true
 
 gui:

@@ -1,13 +1,16 @@
 package es.mrdino.perplayerprofiles.state;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
+import org.bukkit.GameRule;
 import org.bukkit.Location;
-import org.bukkit.NamespacedKey;
 import org.bukkit.Statistic;
+import org.bukkit.World;
 import org.bukkit.advancement.Advancement;
 import org.bukkit.advancement.AdvancementProgress;
 import org.bukkit.attribute.Attribute;
@@ -27,6 +30,7 @@ public class PlayerStateService {
         yaml.set("inventory.contents", player.getInventory().getContents());
         yaml.set("inventory.armor", player.getInventory().getArmorContents());
         yaml.set("inventory.extra", player.getInventory().getExtraContents());
+        yaml.set("inventory.cursor", player.getItemOnCursor());
         yaml.set("ender-chest", player.getEnderChest().getContents());
         yaml.set("health", player.getHealth());
         yaml.set("food-level", player.getFoodLevel());
@@ -50,6 +54,7 @@ public class PlayerStateService {
         player.getInventory().setContents(readItemArray(yaml, "inventory.contents", player.getInventory().getSize()));
         player.getInventory().setArmorContents(readItemArray(yaml, "inventory.armor", 4));
         player.getInventory().setExtraContents(readItemArray(yaml, "inventory.extra", player.getInventory().getExtraContents().length));
+        player.setItemOnCursor(readItem(yaml, "inventory.cursor"));
         player.getEnderChest().setContents(readItemArray(yaml, "ender-chest", player.getEnderChest().getSize()));
 
         player.setFoodLevel(yaml.getInt("food-level", 20));
@@ -76,7 +81,7 @@ public class PlayerStateService {
 
         applyHealth(player, yaml.getDouble("health", getMaxHealth(player)));
         applyUntypedStatistics(player, yaml.getConfigurationSection("statistics"));
-        applyAdvancements(player, yaml.getConfigurationSection("advancements"));
+        applyAdvancementsSilently(player, yaml.getConfigurationSection("advancements"));
 
         Location location = yaml.getLocation("location");
         if (location != null && location.getWorld() != null) {
@@ -100,6 +105,7 @@ public class PlayerStateService {
         yaml.set("inventory.contents", new ItemStack[player.getInventory().getSize()]);
         yaml.set("inventory.armor", new ItemStack[4]);
         yaml.set("inventory.extra", new ItemStack[player.getInventory().getExtraContents().length]);
+        yaml.set("inventory.cursor", null);
         yaml.set("ender-chest", new ItemStack[player.getEnderChest().getSize()]);
         yaml.set("health", getMaxHealth(player));
         yaml.set("food-level", 20);
@@ -172,26 +178,59 @@ public class PlayerStateService {
         while (advancements.hasNext()) {
             Advancement advancement = advancements.next();
             AdvancementProgress progress = player.getAdvancementProgress(advancement);
+            List<String> desiredCriteria = section == null ? List.of() : section.getStringList(advancement.getKey().toString());
             for (String criterion : new ArrayList<>(progress.getAwardedCriteria())) {
-                progress.revokeCriteria(criterion);
+                if (!desiredCriteria.contains(criterion)) {
+                    progress.revokeCriteria(criterion);
+                }
             }
-        }
-        if (section == null) {
-            return;
-        }
-        for (String key : section.getKeys(false)) {
-            Advancement advancement = Bukkit.getAdvancement(NamespacedKey.fromString(key));
-            if (advancement == null) {
-                continue;
-            }
-            AdvancementProgress progress = player.getAdvancementProgress(advancement);
-            for (String criterion : section.getStringList(key)) {
+            for (String criterion : desiredCriteria) {
                 try {
-                    progress.awardCriteria(criterion);
+                    if (!progress.getAwardedCriteria().contains(criterion)) {
+                        progress.awardCriteria(criterion);
+                    }
                 } catch (IllegalArgumentException ignored) {
                     // Ignore criteria removed or renamed by newer Minecraft versions.
                 }
             }
+        }
+    }
+
+    private void applyAdvancementsSilently(Player player, ConfigurationSection section) {
+        Map<World, Boolean> previousValues = temporarilyDisableAdvancementAnnouncements();
+        try {
+            applyAdvancements(player, section);
+        } finally {
+            restoreAdvancementAnnouncements(previousValues);
+        }
+    }
+
+    private Map<World, Boolean> temporarilyDisableAdvancementAnnouncements() {
+        Map<World, Boolean> previousValues = new HashMap<>();
+        GameRule<Boolean> advancementAnnouncementRule = resolveBooleanGameRule("SHOW_ADVANCEMENT_MESSAGES", "ANNOUNCE_ADVANCEMENTS");
+        if (advancementAnnouncementRule == null) {
+            return previousValues;
+        }
+        for (World world : Bukkit.getWorlds()) {
+            Boolean currentValue = world.getGameRuleValue(advancementAnnouncementRule);
+            if (currentValue == null) {
+                continue;
+            }
+            previousValues.put(world, currentValue);
+            if (currentValue) {
+                world.setGameRule(advancementAnnouncementRule, false);
+            }
+        }
+        return previousValues;
+    }
+
+    private void restoreAdvancementAnnouncements(Map<World, Boolean> previousValues) {
+        GameRule<Boolean> advancementAnnouncementRule = resolveBooleanGameRule("SHOW_ADVANCEMENT_MESSAGES", "ANNOUNCE_ADVANCEMENTS");
+        if (advancementAnnouncementRule == null) {
+            return;
+        }
+        for (Map.Entry<World, Boolean> entry : previousValues.entrySet()) {
+            entry.getKey().setGameRule(advancementAnnouncementRule, entry.getValue());
         }
     }
 
@@ -207,13 +246,48 @@ public class PlayerStateService {
         return result;
     }
 
+    private ItemStack readItem(YamlConfiguration yaml, String path) {
+        Object item = yaml.get(path);
+        return item instanceof ItemStack itemStack ? itemStack : null;
+    }
+
     private void applyHealth(Player player, double health) {
         double maxHealth = getMaxHealth(player);
         player.setHealth(Math.max(0.1D, Math.min(maxHealth, health)));
     }
 
     private double getMaxHealth(Player player) {
-        AttributeInstance attribute = player.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+        Attribute maxHealth = resolveAttribute("MAX_HEALTH", "GENERIC_MAX_HEALTH");
+        AttributeInstance attribute = maxHealth == null ? null : player.getAttribute(maxHealth);
         return attribute == null ? 20.0D : attribute.getValue();
+    }
+
+    private Attribute resolveAttribute(String... names) {
+        for (String name : names) {
+            try {
+                Object value = Attribute.class.getField(name).get(null);
+                if (value instanceof Attribute attribute) {
+                    return attribute;
+                }
+            } catch (NoSuchFieldException | IllegalAccessException ignored) {
+                // Try the next Bukkit attribute name for cross-version support.
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private GameRule<Boolean> resolveBooleanGameRule(String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            try {
+                Object value = GameRule.class.getField(fieldName).get(null);
+                if (value instanceof GameRule<?> rule && rule.getType() == Boolean.class) {
+                    return (GameRule<Boolean>) rule;
+                }
+            } catch (NoSuchFieldException | IllegalAccessException ignored) {
+                // Try the next Bukkit gamerule name for cross-version support.
+            }
+        }
+        return null;
     }
 }

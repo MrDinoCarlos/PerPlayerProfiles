@@ -1,6 +1,8 @@
 package es.mrdino.perplayerprofiles;
 
 import es.mrdino.perplayerprofiles.command.ProfilesCommand;
+import es.mrdino.perplayerprofiles.compat.ServerPasswordCompatibility;
+import es.mrdino.perplayerprofiles.gui.GuiHolder;
 import es.mrdino.perplayerprofiles.gui.ProfileGuiManager;
 import es.mrdino.perplayerprofiles.lang.LanguageService;
 import es.mrdino.perplayerprofiles.model.AccountData;
@@ -13,7 +15,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -33,21 +37,23 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerKickEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.event.server.TabCompleteEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.plugin.Plugin;
 
 public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     private final Map<UUID, AccountData> accounts = new HashMap<>();
     private final Map<UUID, String> activeProfiles = new HashMap<>();
     private final Map<UUID, Long> activeSince = new HashMap<>();
+    private final Set<UUID> loadedProfiles = new HashSet<>();
     private final Map<UUID, java.util.Set<String>> sentProfileCompletions = new HashMap<>();
     private final Map<String, Command> wrappedProfileCommands = new HashMap<>();
     private ProfileStorage storage;
     private PlayerStateService stateService;
+    private ServerPasswordCompatibility serverPasswordCompatibility;
     private LanguageService languageService;
     private ProfileGuiManager profileGuiManager;
     private String masterProfileName;
@@ -60,6 +66,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         masterProfileName = AccountData.normalizeName(getConfig().getString("profiles.master-profile-name", "master"));
         storage = new ProfileStorage(this);
         stateService = new PlayerStateService();
+        serverPasswordCompatibility = new ServerPasswordCompatibility(this);
         profileGuiManager = new ProfileGuiManager(this);
 
         ProfilesCommand profilesCommand = new ProfilesCommand(this);
@@ -71,7 +78,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         Bukkit.getScheduler().runTask(this, this::refreshOnlinePlayerCommands);
 
         long autoSaveTicks = Math.max(1L, getConfig().getLong("profiles.auto-save-minutes", 5L)) * 60L * 20L;
-        Bukkit.getScheduler().runTaskTimer(this, this::saveOnlinePlayers, autoSaveTicks, autoSaveTicks);
+        Bukkit.getScheduler().runTaskTimer(this, () -> saveOnlinePlayers(), autoSaveTicks, autoSaveTicks);
         Bukkit.getScheduler().runTaskTimer(this, this::checkProfileTimeLimits, 20L, 20L);
         Bukkit.getScheduler().runTaskTimer(this, this::showProfileTimeWarnings, 20L, 20L);
         Bukkit.getScheduler().runTaskTimer(this, () -> profileGuiManager.refreshOpenProfileMenus(), 20L, 20L);
@@ -165,7 +172,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
-        saveOnlinePlayers();
+        saveOnlinePlayers(true);
         for (Map.Entry<UUID, AccountData> entry : accounts.entrySet()) {
             storage.saveAccount(entry.getKey(), entry.getValue());
         }
@@ -174,6 +181,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
         AccountData account = loadAccount(player.getUniqueId());
         ensureMasterProfile(account, player.getName());
         for (ProfileMeta profile : account.getProfiles().values()) {
@@ -182,38 +190,47 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         storage.saveAccount(player.getUniqueId(), account);
         String joinProfileName = resolveJoinProfile(account);
         boolean requireSelection = shouldRequireJoinSelection(account, joinProfileName);
+        boolean waitingForAuth = isWaitingForExternalAuth(player);
 
-        activeProfiles.put(player.getUniqueId(), joinProfileName);
-        activeSince.put(player.getUniqueId(), System.currentTimeMillis());
-        applyProfileIdentity(player, joinProfileName);
-        if (getConfig().getBoolean("profile-identity.join-leave.enabled", true)) {
+        activeProfiles.put(uuid, joinProfileName);
+        activeSince.remove(uuid);
+        loadedProfiles.remove(uuid);
+        if (!waitingForAuth) {
+            applyProfileIdentity(player, joinProfileName);
+        }
+        if (getConfig().getBoolean("profile-identity.join-leave.enabled", true) && !waitingForAuth) {
             event.setJoinMessage(formatIdentityMessage("profile-identity.join-leave.join-format", player, joinProfileName));
+        } else if (waitingForAuth) {
+            event.setJoinMessage(null);
         }
         updateProfileCommandCompletions();
         player.updateCommands();
-        Bukkit.getScheduler().runTask(this, () -> {
-            loadProfile(player, joinProfileName);
-            updateProfileCommandCompletions();
-            player.updateCommands();
-            if (shouldOpenJoinSelector(account, joinProfileName, requireSelection)) {
-                waitAndOpenJoinProfileSelector(player, 0);
-            }
-        });
+        Bukkit.getScheduler().runTask(this, () -> waitAndLoadJoinProfile(uuid, joinProfileName, requireSelection, 0));
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onQuit(PlayerQuitEvent event) {
-        String profileName = getActiveProfile(event.getPlayer());
-        if (getConfig().getBoolean("profile-identity.join-leave.enabled", true)) {
-            event.setQuitMessage(formatIdentityMessage("profile-identity.join-leave.leave-format", event.getPlayer(), profileName));
+        Player player = event.getPlayer();
+        boolean profileLoaded = loadedProfiles.contains(player.getUniqueId());
+        String profileName = getActiveProfile(player);
+        if (getConfig().getBoolean("profile-identity.join-leave.enabled", true) && profileLoaded) {
+            event.setQuitMessage(formatIdentityMessage("profile-identity.join-leave.leave-format", player, profileName));
+        } else if (!profileLoaded) {
+            event.setQuitMessage(null);
         }
-        saveActiveProfile(event.getPlayer());
-        accounts.remove(event.getPlayer().getUniqueId());
-        activeProfiles.remove(event.getPlayer().getUniqueId());
-        activeSince.remove(event.getPlayer().getUniqueId());
-        sentProfileCompletions.remove(event.getPlayer().getUniqueId());
+        saveActiveProfileForTransition(player);
+        accounts.remove(player.getUniqueId());
+        activeProfiles.remove(player.getUniqueId());
+        activeSince.remove(player.getUniqueId());
+        loadedProfiles.remove(player.getUniqueId());
+        sentProfileCompletions.remove(player.getUniqueId());
         updateProfileCommandCompletions();
-        profileGuiManager.clearRequiredProfileSelection(event.getPlayer());
+        profileGuiManager.clearRequiredProfileSelection(player);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onKick(PlayerKickEvent event) {
+        saveActiveProfileForTransition(event.getPlayer());
     }
 
     public AccountData loadAccount(UUID uuid) {
@@ -255,14 +272,16 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
             return false;
         }
 
+        UUID uuid = player.getUniqueId();
         String oldProfileName = getActiveProfile(player);
-        saveActiveProfile(player);
+        saveActiveProfileForTransition(player);
         boolean profileChanged = !AccountData.normalizeName(oldProfileName).equals(profileName);
         if (profileChanged) {
             broadcastVirtualQuit(player, oldProfileName);
         }
-        activeProfiles.put(player.getUniqueId(), profileName);
-        activeSince.put(player.getUniqueId(), System.currentTimeMillis());
+        activeProfiles.put(uuid, profileName);
+        activeSince.remove(uuid);
+        loadedProfiles.remove(uuid);
         loadProfile(player, profileName);
         applyProfileIdentity(player, profileName);
         account.setLastActiveProfileName(profileName);
@@ -278,9 +297,23 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     }
 
     public void saveActiveProfile(Player player) {
+        saveActiveProfile(player, false);
+    }
+
+    public void saveActiveProfileForTransition(Player player) {
+        saveActiveProfile(player, true);
+    }
+
+    private void saveActiveProfile(Player player, boolean criticalTransition) {
+        if (!loadedProfiles.contains(player.getUniqueId())) {
+            return;
+        }
         String profileName = activeProfiles.get(player.getUniqueId());
         if (profileName == null) {
             return;
+        }
+        if (criticalTransition) {
+            prepareInventoryForProfileSnapshot(player);
         }
         AccountData account = loadAccount(player.getUniqueId());
         ProfileMeta profile = account.getProfile(profileName);
@@ -291,6 +324,24 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         }
         storage.saveProfileState(player.getUniqueId(), profileName, stateService.capture(player));
         storage.saveAccount(player.getUniqueId(), account);
+        if (criticalTransition) {
+            player.saveData();
+        }
+    }
+
+    private void prepareInventoryForProfileSnapshot(Player player) {
+        if (!player.isOnline()) {
+            return;
+        }
+        if (hasExternalNonProfileInventoryOpen(player)) {
+            player.closeInventory();
+        }
+        player.updateInventory();
+    }
+
+    private boolean hasExternalNonProfileInventoryOpen(Player player) {
+        return player.getOpenInventory().getTopInventory().getType() != InventoryType.CRAFTING
+                && !(player.getOpenInventory().getTopInventory().getHolder() instanceof GuiHolder);
     }
 
     public void deleteProfileState(UUID uuid, String profileName) {
@@ -394,6 +445,34 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
             storage.saveProfileState(player.getUniqueId(), profileName, stateService.capture(player));
         }
         applyProfileIdentity(player, profileName);
+        loadedProfiles.add(player.getUniqueId());
+        activeSince.put(player.getUniqueId(), System.currentTimeMillis());
+    }
+
+    private void waitAndLoadJoinProfile(UUID uuid, String joinProfileName, boolean requireSelection, int elapsedSeconds) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        int maxWaitSeconds = Math.max(0, getConfig().getInt("profiles.selector-auth-wait-seconds", 60));
+        if (isWaitingForExternalAuth(player)) {
+            if (elapsedSeconds == maxWaitSeconds) {
+                getLogger().warning("Still waiting for ServerPassword authentication before loading " + player.getName() + "'s profile state.");
+            }
+            Bukkit.getScheduler().runTaskLater(this, () -> waitAndLoadJoinProfile(uuid, joinProfileName, requireSelection, elapsedSeconds + 1), 20L);
+            return;
+        }
+        if (elapsedSeconds < maxWaitSeconds && hasExternalGuiOpen(player)) {
+            Bukkit.getScheduler().runTaskLater(this, () -> waitAndLoadJoinProfile(uuid, joinProfileName, requireSelection, elapsedSeconds + 1), 20L);
+            return;
+        }
+        loadProfile(player, joinProfileName);
+        updateProfileCommandCompletions();
+        player.updateCommands();
+        AccountData account = loadAccount(uuid);
+        if (shouldOpenJoinSelector(account, joinProfileName, requireSelection)) {
+            waitAndOpenJoinProfileSelector(player, 0);
+        }
     }
 
     private String resolveJoinProfile(AccountData account) {
@@ -586,6 +665,9 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     private void sendProfileList(CommandSender sender) {
         java.util.List<String> names = new java.util.ArrayList<>();
         for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!loadedProfiles.contains(player.getUniqueId())) {
+                continue;
+            }
             names.add(listDisplayName(player));
         }
         sender.sendMessage(color(languageService.get("server-list",
@@ -861,6 +943,9 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         }
         Player match = null;
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+            if (!loadedProfiles.contains(onlinePlayer.getUniqueId())) {
+                continue;
+            }
             ProfileMeta profile = getActiveProfileMeta(onlinePlayer);
             if (profile == null || !AccountData.normalizeName(profile.getName()).equals(normalizedVirtualName)) {
                 continue;
@@ -876,6 +961,9 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     private java.util.List<String> onlineActiveProfileNames() {
         java.util.List<String> names = new java.util.ArrayList<>();
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+            if (!loadedProfiles.contains(onlinePlayer.getUniqueId())) {
+                continue;
+            }
             ProfileMeta profile = getActiveProfileMeta(onlinePlayer);
             if (profile != null && !names.contains(profile.getName())) {
                 names.add(profile.getName());
@@ -980,25 +1068,16 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         if (!getConfig().getBoolean("compatibility.server-password.wait-for-auth", true)) {
             return false;
         }
-        Plugin serverPassword = Bukkit.getPluginManager().getPlugin("ServerPassword");
-        if (serverPassword == null || !serverPassword.isEnabled()) {
-            return false;
-        }
-        try {
-            Field authField = serverPassword.getClass().getDeclaredField("authManager");
-            authField.setAccessible(true);
-            Object authManager = authField.get(serverPassword);
-            Method isAuthed = authManager.getClass().getMethod("isAuthed", Player.class);
-            Object result = isAuthed.invoke(authManager, player);
-            return result instanceof Boolean authed && !authed;
-        } catch (ReflectiveOperationException ignored) {
-            return false;
-        }
+        return serverPasswordCompatibility.isWaitingForAuth(player);
     }
 
     private void saveOnlinePlayers() {
+        saveOnlinePlayers(false);
+    }
+
+    private void saveOnlinePlayers(boolean criticalTransition) {
         for (Player player : Bukkit.getOnlinePlayers()) {
-            saveActiveProfile(player);
+            saveActiveProfile(player, criticalTransition);
         }
     }
 

@@ -1,7 +1,7 @@
 name: PerPlayerProfiles
 version: '${version}'
 main: es.mrdino.perplayerprofiles.PerPlayerProfilesPlugin
-api-version: '1.20'
+api-version: '${apiVersion}'
 author: MrDino
 description: Multiple server profiles per Minecraft account.
 softdepend:

@@ -31,10 +31,11 @@ Each profile can have its own inventory, experience, location, statistics, play-
 
 ### Supported Versions
 
-- Minecraft 1.20+
-- Spigot API 1.20+
+- Minecraft 1.20+ on Bukkit-compatible servers
+- Spigot API 1.20+; built against 1.20.6 for broad runtime compatibility
 - Paper 1.20+
-- Bukkit-compatible 1.20+ servers
+- Minecraft/Spigot 26.x has a dedicated build compiled against Spigot API 26.1 for 26.1 and 26.2 servers
+- 26.3 snapshots should be tested before production
 - Java 17+
 
 ### External Plugins
@@ -45,7 +46,7 @@ The plugin declares a soft dependency for:
 ServerPassword
 ```
 
-If ServerPassword is installed and enabled, PerPlayerProfiles waits until the player has completed the server password authentication before opening the profile selector.
+If ServerPassword is installed and enabled, PerPlayerProfiles waits until the player has completed the server password authentication before loading profile state or opening the profile selector.
 
 The plugin also waits if another GUI is already open when the player joins. This prevents PerPlayerProfiles from overriding login, authentication, or security menus.
 
@@ -66,6 +67,13 @@ plugins/PerPlayerProfiles/config.yml
 ```
 
 5. Restart again after changing configuration values.
+
+### Jar Variants
+
+After running `gradlew.bat clean build`, the compiled jars are generated in `build/libs/`:
+
+- `PerPlayerProfiles-1.2X-0.3-BETA.jar` for Bukkit/Spigot/Paper 1.20+.
+- `PerPlayerProfiles-1.2X-0.3-BETA-minecraft26x.jar` for Spigot/Paper 26.1 and 26.2.
 
 ## Commands
 
@@ -153,6 +161,7 @@ Each profile stores its own player state:
 - Respawn location.
 - Bed spawn location.
 - Full inventory.
+- Cursor item.
 - Armor.
 - Offhand and extra inventory slots.
 - Ender chest.
@@ -170,6 +179,7 @@ Each profile stores its own player state:
 - Remaining air.
 - Potion effects.
 - Basic untyped statistics.
+- Advancements.
 
 ## Clean New Profiles
 
@@ -487,30 +497,6 @@ The plugin does not store profile PINs or the master PIN in plain text.
 - Offline-mode servers where one identity may need several profiles.
 - Separating inventory and progress without requiring multiple accounts.
 
-## Building
-
-Requirements:
-
-- Java 17
-- Gradle Wrapper included
-
-Build command:
-
-```bash
-./gradlew clean build
-```
-
-On Windows:
-
-```bat
-gradlew.bat clean build
-```
-
-The compiled jar is generated in:
-
-```text
-build/libs/
-```
 
 ## Important Notes
 
@@ -519,7 +505,7 @@ build/libs/
 - Profiles created before the clean-profile fix may already contain duplicated saved state if they were saved that way.
 - To clean an old duplicated profile, delete its saved state file or recreate the profile.
 - The mandatory selector only opens when the account has more than one profile.
-- The selector waits for ServerPassword if it is installed and enabled.
+- Profile state loading and the selector wait for ServerPassword if it is installed and enabled.
 
 ## License
 
