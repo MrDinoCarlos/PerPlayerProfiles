@@ -1,5 +1,6 @@
 package es.mrdino.perplayerprofiles.state;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -200,8 +201,28 @@ public class PlayerStateService {
         Map<World, Boolean> previousValues = temporarilyDisableAdvancementAnnouncements();
         try {
             applyAdvancements(player, section);
+            flushAdvancementUpdatesWithoutToasts(player);
         } finally {
             restoreAdvancementAnnouncements(previousValues);
+        }
+    }
+
+    private void flushAdvancementUpdatesWithoutToasts(Player player) {
+        try {
+            Object serverPlayer = player.getClass().getMethod("getHandle").invoke(player);
+            Object playerAdvancements = serverPlayer.getClass().getMethod("getAdvancements").invoke(serverPlayer);
+            for (Method method : playerAdvancements.getClass().getMethods()) {
+                Class<?>[] parameterTypes = method.getParameterTypes();
+                if (method.getName().equals("flushDirty")
+                        && parameterTypes.length == 2
+                        && parameterTypes[0].isInstance(serverPlayer)
+                        && parameterTypes[1] == boolean.class) {
+                    method.invoke(playerAdvancements, serverPlayer, false);
+                    return;
+                }
+            }
+        } catch (ReflectiveOperationException | SecurityException ignored) {
+            // Older Bukkit implementations flush advancement changes normally.
         }
     }
 
@@ -281,8 +302,11 @@ public class PlayerStateService {
         for (String fieldName : fieldNames) {
             try {
                 Object value = GameRule.class.getField(fieldName).get(null);
-                if (value instanceof GameRule<?> rule && rule.getType() == Boolean.class) {
-                    return (GameRule<Boolean>) rule;
+                // Paper 26.3 exposes GameRule as a class, while Spigot 26.x exposes it as an
+                // interface. Class#isInstance works with both without emitting an incompatible
+                // invokeinterface/invokevirtual call for GameRule#getType.
+                if (GameRule.class.isInstance(value)) {
+                    return (GameRule<Boolean>) value;
                 }
             } catch (NoSuchFieldException | IllegalAccessException ignored) {
                 // Try the next Bukkit gamerule name for cross-version support.

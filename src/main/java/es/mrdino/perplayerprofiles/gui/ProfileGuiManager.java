@@ -55,6 +55,15 @@ public class ProfileGuiManager implements Listener {
         requiredSelections.remove(player.getUniqueId());
     }
 
+    public void finishProfileSelection(Player player) {
+        UUID uuid = player.getUniqueId();
+        requiredSelections.remove(uuid);
+        pendingInputs.remove(uuid);
+        if (player.getOpenInventory().getTopInventory().getHolder() instanceof GuiHolder) {
+            player.closeInventory();
+        }
+    }
+
     public void refreshOpenProfileMenus() {
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (player.getOpenInventory().getTopInventory().getHolder() instanceof GuiHolder holder && holder.getType() == GuiType.MAIN) {

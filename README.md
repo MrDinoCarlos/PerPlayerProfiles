@@ -34,8 +34,7 @@ Each profile can have its own inventory, experience, location, statistics, play-
 - Minecraft 1.20+ on Bukkit-compatible servers
 - Spigot API 1.20+; built against 1.20.6 for broad runtime compatibility
 - Paper 1.20+
-- Minecraft/Spigot 26.x has a dedicated build compiled against Spigot API 26.1 for 26.1 and 26.2 servers
-- 26.3 snapshots should be tested before production
+- Minecraft/Spigot 26.x has a dedicated build compiled against Spigot API 26.3 for 26.1, 26.2, and 26.3 servers
 - Java 17+
 
 ### External Plugins
@@ -72,8 +71,8 @@ plugins/PerPlayerProfiles/config.yml
 
 After running `gradlew.bat clean build`, the compiled jars are generated in `build/libs/`:
 
-- `PerPlayerProfiles-1.2X-0.3-BETA.jar` for Bukkit/Spigot/Paper 1.20+.
-- `PerPlayerProfiles-1.2X-0.3-BETA-minecraft26x.jar` for Spigot/Paper 26.1 and 26.2.
+- `PerPlayerProfiles-1.2X-0.4-BETA.jar` for Bukkit/Spigot/Paper 1.20+.
+- `PerPlayerProfiles-1.2X-0.4-BETA-minecraft26x.jar` for Spigot/Paper 26.1, 26.2, and 26.3.
 
 ## Commands
 

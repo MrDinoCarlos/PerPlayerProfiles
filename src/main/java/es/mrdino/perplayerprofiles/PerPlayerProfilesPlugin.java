@@ -272,6 +272,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
             return false;
         }
 
+        profileGuiManager.finishProfileSelection(player);
         UUID uuid = player.getUniqueId();
         String oldProfileName = getActiveProfile(player);
         saveActiveProfileForTransition(player);
@@ -291,7 +292,6 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
             logProfileSwitch(player, oldProfileName, profileName);
         }
         updateProfileCommandCompletions();
-        profileGuiManager.clearRequiredProfileSelection(player);
         send(player, "profile-active", "profile", profile.getName());
         return true;
     }
