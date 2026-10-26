@@ -1,32 +1,32 @@
 package es.mrdino.perplayerprofiles;
 
 import es.mrdino.perplayerprofiles.command.ProfilesCommand;
+import es.mrdino.perplayerprofiles.command.ProfileCommandSuggestions;
+import es.mrdino.perplayerprofiles.command.PaperProfileCompletions;
 import es.mrdino.perplayerprofiles.compat.ServerPasswordCompatibility;
 import es.mrdino.perplayerprofiles.gui.GuiHolder;
 import es.mrdino.perplayerprofiles.gui.ProfileGuiManager;
+import es.mrdino.perplayerprofiles.gui.SelectionGuard;
 import es.mrdino.perplayerprofiles.lang.LanguageService;
 import es.mrdino.perplayerprofiles.model.AccountData;
 import es.mrdino.perplayerprofiles.model.ProfileMeta;
 import es.mrdino.perplayerprofiles.state.PlayerStateService;
 import es.mrdino.perplayerprofiles.storage.ProfileStorage;
-import java.io.File;
+import es.mrdino.perplayerprofiles.config.ConfigFiles;
+import es.mrdino.perplayerprofiles.security.PinSecurity;
+import es.mrdino.perplayerprofiles.update.UpdateChecker;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
-import org.bukkit.command.Command;
+import org.bukkit.Statistic;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -50,13 +50,15 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     private final Map<UUID, Long> activeSince = new HashMap<>();
     private final Set<UUID> loadedProfiles = new HashSet<>();
     private final Map<UUID, java.util.Set<String>> sentProfileCompletions = new HashMap<>();
-    private final Map<String, Command> wrappedProfileCommands = new HashMap<>();
+    private final ProfileCommandSuggestions profileCommandSuggestions = new ProfileCommandSuggestions();
     private ProfileStorage storage;
     private PlayerStateService stateService;
     private ServerPasswordCompatibility serverPasswordCompatibility;
     private LanguageService languageService;
     private ProfileGuiManager profileGuiManager;
     private String masterProfileName;
+    private PinSecurity pinSecurity;
+    private UpdateChecker updateChecker;
 
     @Override
     public void onEnable() {
@@ -65,16 +67,20 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         languageService.load();
         masterProfileName = AccountData.normalizeName(getConfig().getString("profiles.master-profile-name", "master"));
         storage = new ProfileStorage(this);
+        languageService.setPreferenceResolver(player -> loadAccount(player.getUniqueId()).getPreferredLanguage());
         stateService = new PlayerStateService();
         serverPasswordCompatibility = new ServerPasswordCompatibility(this);
+        pinSecurity = new PinSecurity(this);
         profileGuiManager = new ProfileGuiManager(this);
+        updateChecker = new UpdateChecker(this);
 
         ProfilesCommand profilesCommand = new ProfilesCommand(this);
         getCommand("profiles").setExecutor(profilesCommand);
         getCommand("profiles").setTabCompleter(profilesCommand);
         Bukkit.getPluginManager().registerEvents(this, this);
         Bukkit.getPluginManager().registerEvents(profileGuiManager, this);
-        registerProfileCommandWrappers();
+        Bukkit.getPluginManager().registerEvents(new SelectionGuard(this), this);
+        PaperProfileCompletions.install(this, profileCommandSuggestions);
         Bukkit.getScheduler().runTask(this, this::refreshOnlinePlayerCommands);
 
         long autoSaveTicks = Math.max(1L, getConfig().getLong("profiles.auto-save-minutes", 5L)) * 60L * 20L;
@@ -85,83 +91,9 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     }
 
     private void updateConfigDefaults() {
-        saveDefaultConfig();
-        File configFile = new File(getDataFolder(), "config.yml");
-        YamlConfiguration current = YamlConfiguration.loadConfiguration(configFile);
-        InputStream defaultConfigStream = getResource("config.yml");
-        if (defaultConfigStream == null) {
-            reloadConfig();
-            return;
-        }
-        try (InputStreamReader reader = new InputStreamReader(defaultConfigStream, StandardCharsets.UTF_8)) {
-            YamlConfiguration defaults = YamlConfiguration.loadConfiguration(reader);
-            if (mergeMissingDefaults(current, defaults)) {
-                current.save(configFile);
-            }
-        } catch (IOException e) {
-            getLogger().warning("Could not update config.yml defaults: " + e.getMessage());
-        }
+        try { ConfigFiles.update(this, "config.yml"); }
+        catch (IOException failure) { throw new IllegalStateException("Could not safely update config.yml", failure); }
         reloadConfig();
-    }
-
-    @SuppressWarnings("unchecked")
-    private void registerProfileCommandWrappers() {
-        if (!getConfig().getBoolean("profile-identity.commands.enabled", true)) {
-            return;
-        }
-        ConfigurationSection rewriteSection = getConfig().getConfigurationSection("profile-identity.commands.rewrite");
-        if (rewriteSection == null) {
-            return;
-        }
-        try {
-            Method getCommandMap = Bukkit.getServer().getClass().getMethod("getCommandMap");
-            Object commandMap = getCommandMap.invoke(Bukkit.getServer());
-            Field knownCommandsField = commandMap.getClass().getDeclaredField("knownCommands");
-            knownCommandsField.setAccessible(true);
-            Map<String, Command> knownCommands = (Map<String, Command>) knownCommandsField.get(commandMap);
-            for (String commandName : rewriteSection.getKeys(false)) {
-                String normalizedName = normalizeCommandName(commandName);
-                java.util.List<String> matchingKeys = new java.util.ArrayList<>();
-                for (String knownCommandName : new java.util.ArrayList<>(knownCommands.keySet())) {
-                    if (normalizeCommandName(knownCommandName).equals(normalizedName)) {
-                        matchingKeys.add(knownCommandName);
-                    }
-                }
-                for (String matchingKey : matchingKeys) {
-                    Command existing = knownCommands.get(matchingKey);
-                    if (existing == null || existing instanceof ProfileTargetCommand) {
-                        continue;
-                    }
-                    ProfileTargetCommand wrapper = normalizedName.equals("list")
-                            ? new ProfileListCommand(normalizedName, existing)
-                            : new ProfileTargetCommand(normalizedName, existing);
-                    knownCommands.put(matchingKey, wrapper);
-                    wrappedProfileCommands.put(matchingKey, existing);
-                }
-            }
-        } catch (ReflectiveOperationException e) {
-            getLogger().warning("Could not register profile command wrappers. Profile names may not appear in vanilla command tab-complete.");
-        }
-    }
-
-    private boolean mergeMissingDefaults(ConfigurationSection target, ConfigurationSection defaults) {
-        boolean changed = false;
-        for (String key : defaults.getKeys(false)) {
-            if (!target.contains(key)) {
-                if (defaults.isConfigurationSection(key)) {
-                    ConfigurationSection created = target.createSection(key);
-                    mergeMissingDefaults(created, defaults.getConfigurationSection(key));
-                } else {
-                    target.set(key, defaults.get(key));
-                }
-                changed = true;
-                continue;
-            }
-            if (defaults.isConfigurationSection(key) && target.isConfigurationSection(key)) {
-                changed |= mergeMissingDefaults(target.getConfigurationSection(key), defaults.getConfigurationSection(key));
-            }
-        }
-        return changed;
     }
 
     private void refreshOnlinePlayerCommands() {
@@ -172,6 +104,9 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (updateChecker != null) updateChecker.shutdown();
+        if (profileGuiManager != null) profileGuiManager.shutdown();
+        if (storage == null) return;
         saveOnlinePlayers(true);
         for (Map.Entry<UUID, AccountData> entry : accounts.entrySet()) {
             storage.saveAccount(entry.getKey(), entry.getValue());
@@ -183,6 +118,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
         AccountData account = loadAccount(player.getUniqueId());
+        account.setPlayerName(player.getName());
         ensureMasterProfile(account, player.getName());
         for (ProfileMeta profile : account.getProfiles().values()) {
             profile.ensureVirtualUuid(player.getUniqueId());
@@ -226,6 +162,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         sentProfileCompletions.remove(player.getUniqueId());
         updateProfileCommandCompletions();
         profileGuiManager.clearRequiredProfileSelection(player);
+        profileGuiManager.clearSession(player);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -244,6 +181,25 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         }
     }
 
+    public Map<UUID, String> knownPlayerAccounts() {
+        Map<UUID, String> names = new HashMap<>(storage.knownPlayerNames());
+        for (org.bukkit.OfflinePlayer player : Bukkit.getOfflinePlayers()) {
+            if (player.getName() != null && (accounts.containsKey(player.getUniqueId()) || storage.hasAccount(player.getUniqueId())))
+                names.put(player.getUniqueId(), player.getName());
+        }
+        accounts.forEach((uuid, account) -> { if (account.getPlayerName() != null) names.put(uuid, account.getPlayerName()); });
+        return names;
+    }
+
+    public UUID resolveKnownAccount(String input) {
+        try {
+            UUID uuid = UUID.fromString(input);
+            if (accounts.containsKey(uuid) || storage.hasAccount(uuid)) return uuid;
+        } catch (IllegalArgumentException ignored) { }
+        return knownPlayerAccounts().entrySet().stream().filter(entry -> entry.getValue().equalsIgnoreCase(input))
+                .map(Map.Entry::getKey).findFirst().orElse(null);
+    }
+
     public void ensureMasterProfile(AccountData account) {
         ensureMasterProfile(account, masterProfileName);
     }
@@ -260,11 +216,19 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     }
 
     public boolean switchProfile(Player player, String targetProfile) {
+        if (!isProfileReady(player)) {
+            send(player, "waiting-for-auth");
+            return false;
+        }
         String profileName = AccountData.normalizeName(targetProfile);
         AccountData account = loadAccount(player.getUniqueId());
         ProfileMeta profile = account.getProfile(profileName);
         if (profile == null) {
             send(player, "profile-not-found");
+            return false;
+        }
+        if (profile.isPasswordResetRequired()) {
+            profileGuiManager.beginPasswordRecovery(player, profile.getName());
             return false;
         }
         if (profile.isTimeExceeded(System.currentTimeMillis())) {
@@ -293,6 +257,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         }
         updateProfileCommandCompletions();
         send(player, "profile-active", "profile", profile.getName());
+        if (profileChanged) profileGuiManager.playTransition(player, account.getProfile(oldProfileName), profile);
         return true;
     }
 
@@ -319,10 +284,14 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         ProfileMeta profile = account.getProfile(profileName);
         Long since = activeSince.put(player.getUniqueId(), System.currentTimeMillis());
         if (profile != null && since != null) {
-            profile.addUsedMillis(System.currentTimeMillis() - since);
+            profile.chargeSession(since, System.currentTimeMillis());
+            profile.recordSession(System.currentTimeMillis() - since, player.getLevel(), player.getStatistic(Statistic.DEATHS),
+                    player.getStatistic(Statistic.MOB_KILLS), player.getStatistic(Statistic.PLAYER_KILLS));
             account.setLastActiveProfileName(profileName);
         }
-        storage.saveProfileState(player.getUniqueId(), profileName, stateService.capture(player));
+        YamlConfiguration snapshot = stateService.capture(player);
+        if (profile != null) profile.updateTypedStatistics(snapshot.getConfigurationSection("statistics-typed"));
+        storage.saveProfileState(player.getUniqueId(), profileName, snapshot);
         storage.saveAccount(player.getUniqueId(), account);
         if (criticalTransition) {
             player.saveData();
@@ -421,6 +390,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
 
     public void send(Player player, String key, Object... replacements) {
         languageService.send(player, key, replacements);
+        if (profileGuiManager != null) profileGuiManager.reportMessage(player, key, replacements);
     }
 
     public LanguageService getLanguageService() {
@@ -429,6 +399,27 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
 
     public ProfileGuiManager getProfileGuiManager() {
         return profileGuiManager;
+    }
+
+    public PinSecurity getPinSecurity() { return pinSecurity; }
+
+    public boolean isProfileReady(Player player) {
+        return loadedProfiles.contains(player.getUniqueId()) && !isWaitingForExternalAuth(player);
+    }
+
+    public long getRemainingPlayMillis(Player player, ProfileMeta profile) {
+        long now = System.currentTimeMillis();
+        long since = AccountData.normalizeName(profile.getName()).equals(getActiveProfile(player))
+                ? activeSince.getOrDefault(player.getUniqueId(), now) : now;
+        return profile.getRemainingMillis(now, since);
+    }
+
+    public void reloadPluginSettings() {
+        updateConfigDefaults();
+        languageService.load();
+        masterProfileName = AccountData.normalizeName(getConfig().getString("profiles.master-profile-name", "master"));
+        updateProfileCommandCompletions();
+        refreshOnlinePlayerCommands();
     }
 
     private void loadProfile(Player player, String profileName) {
@@ -445,6 +436,11 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
             storage.saveProfileState(player.getUniqueId(), profileName, stateService.capture(player));
         }
         applyProfileIdentity(player, profileName);
+        if (profile != null) profile.initializePlaytime(player.getStatistic(Statistic.PLAY_ONE_MINUTE) * 50L);
+        if (profile != null) {
+            profile.recordConnection(System.currentTimeMillis());
+            profile.updateTypedStatistics(yaml.getConfigurationSection("statistics-typed"));
+        }
         loadedProfiles.add(player.getUniqueId());
         activeSince.put(player.getUniqueId(), System.currentTimeMillis());
     }
@@ -466,13 +462,45 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
             Bukkit.getScheduler().runTaskLater(this, () -> waitAndLoadJoinProfile(uuid, joinProfileName, requireSelection, elapsedSeconds + 1), 20L);
             return;
         }
+        migrateLegacyProgress(player, loadAccount(uuid));
         loadProfile(player, joinProfileName);
         updateProfileCommandCompletions();
         player.updateCommands();
         AccountData account = loadAccount(uuid);
+        ProfileMeta joined = account.getProfile(joinProfileName);
+        if (joined != null && joined.isPasswordResetRequired()) {
+            profileGuiManager.requireProfileSelection(player);
+            profileGuiManager.beginPasswordRecovery(player, joined.getName());
+            return;
+        }
         if (shouldOpenJoinSelector(account, joinProfileName, requireSelection)) {
             waitAndOpenJoinProfileSelector(player, 0);
         }
+    }
+
+    private void migrateLegacyProgress(Player player, AccountData account) {
+        String previous = account.hasProfile(account.getLastActiveProfileName()) ? account.getLastActiveProfileName() : account.getMasterProfileName(masterProfileName);
+        YamlConfiguration state = storage.loadProfileState(player.getUniqueId(), previous);
+        if (!stateService.hasState(state) || state.contains("recipes") && state.contains("statistics-typed")) return;
+        YamlConfiguration progress = new YamlConfiguration();
+        es.mrdino.perplayerprofiles.state.ProfileProgress.capture(player, progress);
+        if (!state.contains("recipes")) state.set("recipes", progress.get("recipes"));
+        if (!state.contains("statistics-typed")) {
+            ConfigurationSection typed = state.createSection("statistics-typed");
+            progress.getConfigurationSection("statistics-typed").getValues(true).forEach((path, value) -> {
+                if (!(value instanceof ConfigurationSection)) typed.set(path, value);
+            });
+        }
+        storage.saveProfileState(player.getUniqueId(), previous, state);
+    }
+
+    public YamlConfiguration profileProgress(Player player, String profileName) {
+        if (AccountData.normalizeName(profileName).equals(getActiveProfile(player))) {
+            YamlConfiguration progress = new YamlConfiguration();
+            es.mrdino.perplayerprofiles.state.ProfileProgress.capture(player, progress);
+            return progress;
+        }
+        return storage.loadProfileState(player.getUniqueId(), profileName);
     }
 
     private String resolveJoinProfile(AccountData account) {
@@ -554,12 +582,14 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onConsoleProfileCommand(ServerCommandEvent event) {
+        if (!getConfig().getBoolean("profile-identity.commands.enabled", true)) return;
         String[] parts = event.getCommand().trim().split("\\s+");
-        if (parts.length == 0 || !normalizeCommandName(parts[0]).equals("list")) {
-            return;
+        if (parts.length > 0 && normalizeCommandName(parts[0]).equals("list")) {
+            event.setCancelled(true);
+            sendProfileList(event.getSender());
+        } else {
+            event.setCommand(rewriteProfileCommandTargets("/" + event.getCommand()).substring(1));
         }
-        event.setCancelled(true);
-        sendProfileList(event.getSender());
     }
 
     private boolean handleBuiltInProfileCommand(PlayerCommandPreprocessEvent event) {
@@ -568,98 +598,12 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
             return false;
         }
         String commandName = normalizeCommandName(parts[0]);
-        if (commandName.equals("list")) {
+        if (commandName.equals("list") && event.getPlayer().hasPermission("minecraft.command.list")) {
             event.setCancelled(true);
             sendProfileList(event.getPlayer());
             return true;
         }
-        if (commandName.equals("tp") || commandName.equals("teleport")) {
-            return handleProfileTeleport(event, parts);
-        }
         return false;
-    }
-
-    private boolean handleProfileTeleport(PlayerCommandPreprocessEvent event, String[] parts) {
-        if (parts.length == 2) {
-            Player target = resolveProfilePlayer(parts[1]);
-            if (target == null) {
-                return false;
-            }
-            event.setCancelled(true);
-            event.getPlayer().teleport(target);
-            event.getPlayer().sendMessage(color(languageService.get("teleport-to-player", "target", listDisplayName(target))));
-            return true;
-        }
-        if (parts.length == 3) {
-            Player source = resolveProfilePlayer(parts[1]);
-            Player target = resolveProfilePlayer(parts[2]);
-            if (source == null && target == null) {
-                return false;
-            }
-            if (source == null) {
-                source = Bukkit.getPlayerExact(parts[1]);
-            }
-            if (target == null) {
-                target = Bukkit.getPlayerExact(parts[2]);
-            }
-            if (source == null || target == null) {
-                return false;
-            }
-            event.setCancelled(true);
-            source.teleport(target);
-            event.getPlayer().sendMessage(color(languageService.get("teleport-player-to-player", "source", listDisplayName(source), "target", listDisplayName(target))));
-            return true;
-        }
-        if (parts.length >= 5) {
-            Player source = resolveProfilePlayer(parts[1]);
-            if (source == null) {
-                return false;
-            }
-            Location location = parseTeleportLocation(source, parts);
-            if (location == null) {
-                return false;
-            }
-            event.setCancelled(true);
-            source.teleport(location);
-            event.getPlayer().sendMessage(color(languageService.get("teleport-player-to-location",
-                    "source", listDisplayName(source),
-                    "x", formatCoordinate(location.getX()),
-                    "y", formatCoordinate(location.getY()),
-                    "z", formatCoordinate(location.getZ()))));
-            return true;
-        }
-        return false;
-    }
-
-    private Location parseTeleportLocation(Player source, String[] parts) {
-        try {
-            Location base = source.getLocation();
-            double x = parseCoordinate(parts[2], base.getX());
-            double y = parseCoordinate(parts[3], base.getY());
-            double z = parseCoordinate(parts[4], base.getZ());
-            Location location = new Location(source.getWorld(), x, y, z, base.getYaw(), base.getPitch());
-            if (parts.length >= 7) {
-                location.setYaw((float) Double.parseDouble(parts[5]));
-                location.setPitch((float) Double.parseDouble(parts[6]));
-            }
-            return location;
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private double parseCoordinate(String input, double baseValue) {
-        if (input.equals("~")) {
-            return baseValue;
-        }
-        if (input.startsWith("~")) {
-            return baseValue + Double.parseDouble(input.substring(1));
-        }
-        return Double.parseDouble(input);
-    }
-
-    private String formatCoordinate(double value) {
-        return String.format(java.util.Locale.US, "%.6f", value);
     }
 
     private void sendProfileList(CommandSender sender) {
@@ -719,25 +663,10 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onProfileCommandTab(TabCompleteEvent event) {
-        if (!getConfig().getBoolean("profile-identity.commands.enabled", true) || !event.getBuffer().startsWith("/")) {
-            return;
-        }
-        String buffer = event.getBuffer();
-        String[] parts = buffer.trim().split("\\s+");
-        if (parts.length == 0) {
-            return;
-        }
-        String commandName = normalizeCommandName(parts[0]);
-        int argIndex = buffer.endsWith(" ") ? parts.length - 1 : parts.length - 2;
-        if (argIndex < 0 || !commandTargetIndexes(commandName).contains(argIndex)) {
-            return;
-        }
-        String prefix = buffer.endsWith(" ") ? "" : parts[parts.length - 1];
         java.util.List<String> completions = new java.util.ArrayList<>(event.getCompletions());
-        for (String profileName : onlineActiveProfileNames()) {
-            if (profileName.toLowerCase().startsWith(prefix.toLowerCase()) && !completions.contains(profileName)) {
-                completions.add(profileName);
-            }
+        UUID viewer = event.getSender() instanceof Player player ? player.getUniqueId() : null;
+        for (String name : profileCommandSuggestions.complete(viewer, event.getBuffer())) {
+            if (!completions.contains(name)) completions.add(name);
         }
         event.setCompletions(completions);
     }
@@ -885,39 +814,6 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         return changed ? String.join(" ", parts) : message;
     }
 
-    private String[] rewriteProfileCommandArgs(String commandName, String[] args) {
-        java.util.List<Integer> targetIndexes = commandTargetIndexes(commandName);
-        if (targetIndexes.isEmpty()) {
-            return args;
-        }
-        String[] rewritten = java.util.Arrays.copyOf(args, args.length);
-        for (int targetIndex : targetIndexes) {
-            if (targetIndex >= rewritten.length) {
-                continue;
-            }
-            String realPlayerName = resolveRealPlayerName(rewritten[targetIndex]);
-            if (realPlayerName != null) {
-                rewritten[targetIndex] = realPlayerName;
-            }
-        }
-        return rewritten;
-    }
-
-    private java.util.List<String> addProfileCompletions(String commandName, String[] args, java.util.List<String> completions) {
-        java.util.List<String> merged = new java.util.ArrayList<>(completions == null ? java.util.List.of() : completions);
-        int argIndex = Math.max(0, args.length - 1);
-        if (!commandTargetIndexes(commandName).contains(argIndex)) {
-            return merged;
-        }
-        String prefix = args.length == 0 ? "" : args[args.length - 1];
-        for (String profileName : onlineActiveProfileNames()) {
-            if (profileName.toLowerCase().startsWith(prefix.toLowerCase()) && !merged.contains(profileName)) {
-                merged.add(profileName);
-            }
-        }
-        return merged;
-    }
-
     private String normalizeCommandName(String commandLabel) {
         String name = commandLabel.startsWith("/") ? commandLabel.substring(1) : commandLabel;
         int namespaceIndex = name.indexOf(':');
@@ -992,11 +888,26 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     }
 
     private void updateProfileCommandCompletions() {
-        if (!getConfig().getBoolean("profile-identity.commands.enabled", true)) {
-            return;
+        Map<String, java.util.List<Integer>> targets = new HashMap<>();
+        ConfigurationSection rewrite = getConfig().getConfigurationSection("profile-identity.commands.rewrite");
+        if (getConfig().getBoolean("profile-identity.commands.enabled", true) && rewrite != null) {
+            for (String command : rewrite.getKeys(false)) targets.put(command, rewrite.getIntegerList(command));
         }
-        java.util.Set<String> activeNames = new java.util.HashSet<>(onlineActiveProfileNames());
+        Map<UUID, java.util.List<String>> visibleNames = new HashMap<>();
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            java.util.List<String> names = new java.util.ArrayList<>();
+            for (Player target : Bukkit.getOnlinePlayers()) {
+                if (loadedProfiles.contains(target.getUniqueId()) && viewer.canSee(target)) {
+                    ProfileMeta profile = getActiveProfileMeta(target);
+                    if (profile != null) names.add(profile.getName());
+                }
+            }
+            visibleNames.put(viewer.getUniqueId(), names);
+        }
+        profileCommandSuggestions.publish(targets, visibleNames, onlineActiveProfileNames());
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+            java.util.Set<String> activeNames = targets.isEmpty() ? java.util.Set.of()
+                    : new java.util.HashSet<>(visibleNames.get(onlinePlayer.getUniqueId()));
             java.util.Set<String> previousNames = sentProfileCompletions.getOrDefault(onlinePlayer.getUniqueId(), java.util.Set.of());
             if (!previousNames.isEmpty()) {
                 onlinePlayer.removeCustomChatCompletions(previousNames);
@@ -1009,50 +920,12 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    private class ProfileTargetCommand extends Command {
-        private final Command delegate;
-
-        private ProfileTargetCommand(String name, Command delegate) {
-            super(name, delegate.getDescription(), delegate.getUsage(), delegate.getAliases());
-            this.delegate = delegate;
-            setPermission(delegate.getPermission());
-            setPermissionMessage(delegate.getPermissionMessage());
-        }
-
-        @Override
-        public boolean execute(CommandSender sender, String commandLabel, String[] args) {
-            return delegate.execute(sender, commandLabel, rewriteProfileCommandArgs(getName(), args));
-        }
-
-        @Override
-        public java.util.List<String> tabComplete(CommandSender sender, String alias, String[] args) throws IllegalArgumentException {
-            return addProfileCompletions(getName(), args, delegate.tabComplete(sender, alias, args));
-        }
-
-        @Override
-        public java.util.List<String> tabComplete(CommandSender sender, String alias, String[] args, Location location) throws IllegalArgumentException {
-            return addProfileCompletions(getName(), args, delegate.tabComplete(sender, alias, args, location));
-        }
-    }
-
-    private final class ProfileListCommand extends ProfileTargetCommand {
-        private ProfileListCommand(String name, Command delegate) {
-            super(name, delegate);
-        }
-
-        @Override
-        public boolean execute(CommandSender sender, String commandLabel, String[] args) {
-            sendProfileList(sender);
-            return true;
-        }
-    }
-
     private void waitAndOpenJoinProfileSelector(Player player, int elapsedSeconds) {
         if (!player.isOnline()) {
             return;
         }
         int maxWaitSeconds = Math.max(0, getConfig().getInt("profiles.selector-auth-wait-seconds", 60));
-        if (elapsedSeconds < maxWaitSeconds && (isWaitingForExternalAuth(player) || hasExternalGuiOpen(player))) {
+        if (isWaitingForExternalAuth(player) || elapsedSeconds < maxWaitSeconds && hasExternalGuiOpen(player)) {
             Bukkit.getScheduler().runTaskLater(this, () -> waitAndOpenJoinProfileSelector(player, elapsedSeconds + 1), 20L);
             return;
         }
@@ -1082,6 +955,7 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     }
 
     private void checkProfileTimeLimits() {
+        pinSecurity.clearExpired();
         long now = System.currentTimeMillis();
         for (Player player : Bukkit.getOnlinePlayers()) {
             String profileName = getActiveProfile(player);
@@ -1091,9 +965,9 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
             if (profile == null || since == null || !profile.isTimeLimited()) {
                 continue;
             }
-            long remaining = Math.max(0L, profile.getRemainingMillis(now) - Math.max(0L, now - since));
+            long remaining = profile.getRemainingMillis(now, since);
             if (remaining <= 0L && !profile.isMaster()) {
-                String kickMessage = languageService.get("profile-time-expired-kick",
+                String kickMessage = languageService.get(player, "profile-time-expired-kick",
                         "profile", profile.getName(),
                         "renew", formatDuration(profile.getMillisUntilRenewal(now)));
                 saveActiveProfile(player);
@@ -1113,14 +987,14 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
             if (profile == null || profile.isMaster() || since == null || !profile.isTimeLimited()) {
                 continue;
             }
-            long remaining = Math.max(0L, profile.getRemainingMillis(now) - Math.max(0L, now - since));
+            long remaining = profile.getRemainingMillis(now, since);
             if (remaining > 5 * 60_000L) {
                 continue;
             }
             String color = remaining <= 30_000L
                     ? (blink ? "&c&l" : "&4&l")
                     : remaining <= 60_000L ? "&c" : "&6";
-            String message = languageService.get("time-warning-actionbar", "time", formatDuration(remaining));
+            String message = languageService.get(player, "time-warning-actionbar", "time", formatDuration(remaining));
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(ChatColor.translateAlternateColorCodes('&', color + message)));
         }
     }

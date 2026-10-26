@@ -8,13 +8,17 @@
 # Notes:
 # - Existing config values are preserved during plugin updates.
 # - New missing options are added automatically.
-# - Language files are refreshed by the plugin on startup.
+# - Missing translation keys are added without replacing customized texts.
 # - Use '&' color codes in configurable messages.
 # ============================================================
 
 # Language used by plugin messages.
 # Available: en, es, de, fr
 language: en
+
+# Checks Modrinth at startup and every 6 hours. Console results always appear.
+updates:
+  notify-admins: true
 
 # Core profile behavior.
 profiles:
@@ -108,6 +112,7 @@ profile-identity:
       - perfiles
 
   # Commands where profile names should be resolved to real online account names.
+  # Native commands and permissions are preserved; supported server events add profile suggestions.
   # Numbers are zero-based argument indexes.
   # Example: /tp <target> => tp: [0]
   commands:
@@ -151,6 +156,24 @@ compatibility:
     wait-for-auth: true
 
 gui:
+  # AUTO / MODERN: native custom screens on Paper 1.21.7+ and compatible clients.
+  # LEGACY / INVENTORY: always use the inventory GUI.
+  # Unsupported servers/clients automatically use the inventory GUI.
+  mode: AUTO
+  custom-screens:
+    # Number of real 3D heads shown together before changing page (1-3).
+    # Small pages keep the native dialogs compact at ordinary GUI scales.
+    profiles-per-page: 3
+    icons-per-page: 3
+  # Brief character transition. Statistics and inventories switch before the animation.
+  transition:
+    enabled: true
+    duration-ticks: 12
+  show-statistics: true
+  custom-heads:
+    # Import from the icon menu: texture CDN URL, texture hash, or Base64.
+    # Only textures.minecraft.net URLs are accepted. No API key is needed.
+    allow-import: true
   pin-heads:
     digits:
       0: 'eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvYTNhNDg3YjFmODFjOWVjYzZlMTg4NTdjNjU2NjUyOWU3ZWZhMjNlZWY1OTgxNGZlNTdkNjRkZjhlMmNmMSJ9fX0='
@@ -205,3 +228,6 @@ security:
   pin:
     min-length: 4
     max-length: 9
+    # Shared by commands and both menus; reconnecting does not clear a cooldown.
+    max-attempts: 5
+    cooldown-seconds: 60

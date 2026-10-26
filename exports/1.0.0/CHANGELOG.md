@@ -1,0 +1,29 @@
+# PerPlayerProfiles 1.0.0
+
+- Restore advancement and recipe snapshots silently on login and character changes, including older clients without the advancement notification flag. Avoid repeated XP/loot/functions and discovery/completion events; keep future genuine unlocks, trigger listeners, partial criteria and per-character recipes working without changing world gamerules.
+- Fix a server-crashing recursive command completion on Paper 26.3. Preserve native commands, permissions and suggestions; add profile targets through outgoing Paper events instead of replacing command registrations.
+- Resolve profile targets from console commands too; let the native teleport command validate permissions, selectors and coordinates.
+- Export separate JARs for Minecraft 1.20.X, 1.21.X, 26.1.X, 26.2.X and 26.3.X.
+- Use native custom screens by default on supported Paper/client combinations; retain configurable inventory mode and per-account preferences.
+- Add character cards with type, protection, lifetime play time, statistics, renewable budget and availability.
+- Redesign native selectors with real 3D player-head items, several characters per page, individual Select/Details links, hover details and compact appearance/security sections.
+- Show blocked profiles with red names and PIN/time-warning badges. Keep Minecraft's native head model, texture and overlay instead of font-pixel portraits.
+- Configure the number of profiles and icons per native page; hide pagination when every entry fits and show several icon choices together.
+- Show native form errors inline, retain invalid input and allow PIN retries without closing the screen.
+- Add per-player language preferences, a language menu, client locale detection and `/profiles language`.
+- Add creation and last connection dates, with an honest Unknown fallback for missing legacy creation dates.
+- Isolate discovered recipes and all typed block/item/entity statistics, migrate legacy shared progress once and clear counters missing from the target profile.
+- Add optional character transition animation and cancel its pending frames when another screen opens.
+- Add administrator/console PIN reset and removal for online or offline accounts, persistent new-PIN requirements, tab completion and credential-free audit logs.
+- Add native creation, renaming, settings, PIN, time editor, searchable icons and head import preview.
+- Paginate profile and icon menus, including every default head.
+- Import Minecraft texture URLs, texture hashes and Base64 without a third-party catalog API.
+- Match ServerPassword's PBKDF2-SHA256 credential format; migrate legacy hashes after successful verification.
+- Share failed-PIN cooldowns across commands and both menus.
+- Preserve customized configuration and translations while adding new keys automatically at startup and reload.
+- Use atomic file replacement and refuse to overwrite malformed YAML.
+- Add compatible Modrinth checks; always report console results, with optional admin join messages after authentication.
+- Complete all commands, aliases, profile names, menu modes and common time values with Tab.
+- Protect mandatory selection, cancel GUI item dragging and reject stale or cross-player dialog actions.
+- Preserve lifetime play time across renewable budget resets; charge only the current window when sessions cross renewal.
+- Add CC-BY-NC-SA-4.0 LICENSE and NOTICE, matching ServerPassword, to runtime and source exports.

@@ -39,7 +39,7 @@ public final class ServerPasswordCompatibility {
         }
 
         warnUnreadableState(serverPassword);
-        return false;
+        return true;
     }
 
     private Boolean findBooleanState(Plugin serverPassword, Player player, List<String> preferredFieldNames, List<String> methodNames) {
@@ -128,6 +128,6 @@ public final class ServerPasswordCompatibility {
             return;
         }
         warnedUnreadableState = true;
-        plugin.getLogger().warning("ServerPassword is installed, but its authentication state could not be read. Profile loading will fall back to GUI detection only. ServerPassword version: " + serverPassword.getDescription().getVersion());
+        plugin.getLogger().warning("ServerPassword is installed, but its authentication state could not be read. Profile loading will wait to avoid opening over authentication. ServerPassword version: " + serverPassword.getDescription().getVersion());
     }
 }

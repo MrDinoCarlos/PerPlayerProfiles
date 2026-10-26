@@ -1,17 +1,16 @@
 package es.mrdino.perplayerprofiles.security;
 
-import java.security.NoSuchAlgorithmException;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.KeySpec;
+import java.util.Arrays;
 import java.util.Base64;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
+/** One-way hashes with read compatibility for the original 120000-iteration format. */
 public final class PasswordHasher {
-    private static final String ALGORITHM = "PBKDF2WithHmacSHA256";
-    private static final int ITERATIONS = 120_000;
-    private static final int KEY_LENGTH = 256;
+    private static final int ITERATIONS = 600_000;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private PasswordHasher() {
@@ -20,43 +19,46 @@ public final class PasswordHasher {
     public static String hash(String password) {
         byte[] salt = new byte[16];
         RANDOM.nextBytes(salt);
-        byte[] hash = pbkdf(password, salt, ITERATIONS, KEY_LENGTH);
-        return ITERATIONS + ":" + Base64.getEncoder().encodeToString(salt) + ":" + Base64.getEncoder().encodeToString(hash);
+        return "pbkdf2-sha256$" + ITERATIONS + "$" + Base64.getEncoder().encodeToString(salt)
+                + "$" + Base64.getEncoder().encodeToString(derive(password, salt, ITERATIONS));
     }
 
     public static boolean verify(String password, String encoded) {
-        if (encoded == null || encoded.isBlank()) {
-            return true;
-        }
-        String[] parts = encoded.split(":");
-        if (parts.length != 3) {
-            return false;
-        }
-        int iterations = Integer.parseInt(parts[0]);
-        byte[] salt = Base64.getDecoder().decode(parts[1]);
-        byte[] expected = Base64.getDecoder().decode(parts[2]);
-        byte[] actual = pbkdf(password, salt, iterations, expected.length * 8);
-        return constantTimeEquals(expected, actual);
+        if (password == null || password.length() > 128) return false;
+        Parts parts = parse(encoded);
+        if (parts == null) return false;
+        byte[] actual = derive(password, parts.salt(), parts.iterations());
+        try { return MessageDigest.isEqual(parts.hash(), actual); }
+        finally { Arrays.fill(actual, (byte) 0); }
     }
 
-    private static byte[] pbkdf(String password, byte[] salt, int iterations, int keyLength) {
+    public static boolean needsUpgrade(String encoded) {
+        Parts parts = parse(encoded);
+        return parts != null && (!encoded.startsWith("pbkdf2-sha256$") || parts.iterations() < ITERATIONS);
+    }
+
+    private static Parts parse(String encoded) {
+        if (encoded == null || encoded.length() > 512) return null;
         try {
-            SecretKeyFactory factory = SecretKeyFactory.getInstance(ALGORITHM);
-            KeySpec spec = new PBEKeySpec(password.toCharArray(), salt, iterations, keyLength);
-            return factory.generateSecret(spec).getEncoded();
-        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
-            throw new IllegalStateException("Could not hash password", e);
-        }
+            boolean modern = encoded.startsWith("pbkdf2-sha256$");
+            String[] fields = encoded.split(modern ? "\\$" : ":", -1);
+            if (fields.length != (modern ? 4 : 3)) return null;
+            int offset = modern ? 1 : 0;
+            int iterations = Integer.parseInt(fields[offset]);
+            byte[] salt = Base64.getDecoder().decode(fields[offset + 1]);
+            byte[] hash = Base64.getDecoder().decode(fields[offset + 2]);
+            if (iterations < 120_000 || iterations > 2_000_000 || salt.length < 16 || salt.length > 64 || hash.length != 32) return null;
+            return new Parts(iterations, salt, hash);
+        } catch (IllegalArgumentException malformed) { return null; }
     }
 
-    private static boolean constantTimeEquals(byte[] a, byte[] b) {
-        if (a.length != b.length) {
-            return false;
-        }
-        int result = 0;
-        for (int i = 0; i < a.length; i++) {
-            result |= a[i] ^ b[i];
-        }
-        return result == 0;
+    private static byte[] derive(String password, byte[] salt, int iterations) {
+        char[] characters = password.toCharArray();
+        PBEKeySpec spec = new PBEKeySpec(characters, salt, iterations, 256);
+        Arrays.fill(characters, '\0');
+        try { return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded(); }
+        catch (GeneralSecurityException failure) { throw new IllegalStateException("PBKDF2-SHA256 unavailable", failure); }
+        finally { spec.clearPassword(); }
     }
+    private record Parts(int iterations, byte[] salt, byte[] hash) { }
 }

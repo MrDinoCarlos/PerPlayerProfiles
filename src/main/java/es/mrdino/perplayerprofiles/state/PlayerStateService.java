@@ -1,17 +1,12 @@
 package es.mrdino.perplayerprofiles.state;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
-import org.bukkit.GameRule;
 import org.bukkit.Location;
 import org.bukkit.Statistic;
-import org.bukkit.World;
 import org.bukkit.advancement.Advancement;
 import org.bukkit.advancement.AdvancementProgress;
 import org.bukkit.attribute.Attribute;
@@ -27,7 +22,7 @@ public class PlayerStateService {
         YamlConfiguration yaml = new YamlConfiguration();
         yaml.set("location", player.getLocation());
         yaml.set("bed-spawn", player.getBedSpawnLocation());
-        yaml.set("respawn-location", player.getRespawnLocation());
+        yaml.set("respawn-location", player.getBedSpawnLocation());
         yaml.set("inventory.contents", player.getInventory().getContents());
         yaml.set("inventory.armor", player.getInventory().getArmorContents());
         yaml.set("inventory.extra", player.getInventory().getExtraContents());
@@ -47,11 +42,14 @@ public class PlayerStateService {
         yaml.set("remaining-air", player.getRemainingAir());
         yaml.set("potion-effects", new ArrayList<>(player.getActivePotionEffects()));
         saveUntypedStatistics(player, yaml.createSection("statistics"));
+        ProfileProgress.capture(player, yaml);
         saveAdvancements(player, yaml.createSection("advancements"));
         return yaml;
     }
 
     public void apply(Player player, YamlConfiguration yaml) {
+        SilentProfileProgress.Restoration progress = SilentProfileProgress.prepare(player,
+                yaml.getConfigurationSection("advancements"), yaml.getStringList("recipes"));
         player.getInventory().setContents(readItemArray(yaml, "inventory.contents", player.getInventory().getSize()));
         player.getInventory().setArmorContents(readItemArray(yaml, "inventory.armor", 4));
         player.getInventory().setExtraContents(readItemArray(yaml, "inventory.extra", player.getInventory().getExtraContents().length));
@@ -82,19 +80,15 @@ public class PlayerStateService {
 
         applyHealth(player, yaml.getDouble("health", getMaxHealth(player)));
         applyUntypedStatistics(player, yaml.getConfigurationSection("statistics"));
-        applyAdvancementsSilently(player, yaml.getConfigurationSection("advancements"));
+        ProfileProgress.applyStatistics(player, yaml.getConfigurationSection("statistics-typed"));
+        progress.apply();
 
         Location location = yaml.getLocation("location");
         if (location != null && location.getWorld() != null) {
             player.teleport(location);
         }
-        Location bedSpawn = yaml.getLocation("bed-spawn");
-        if (bedSpawn != null) {
-            player.setBedSpawnLocation(bedSpawn, true);
-        }
-        if (yaml.contains("respawn-location")) {
-            player.setRespawnLocation(yaml.getLocation("respawn-location"), true);
-        }
+        Location bedSpawn = yaml.getLocation("respawn-location", yaml.getLocation("bed-spawn"));
+        player.setBedSpawnLocation(bedSpawn, true);
         player.updateInventory();
     }
 
@@ -128,6 +122,8 @@ public class PlayerStateService {
             }
         }
         yaml.createSection("advancements");
+        yaml.createSection("statistics-typed");
+        yaml.set("recipes", List.of());
         return yaml;
     }
 
@@ -174,87 +170,6 @@ public class PlayerStateService {
         }
     }
 
-    private void applyAdvancements(Player player, ConfigurationSection section) {
-        Iterator<Advancement> advancements = Bukkit.advancementIterator();
-        while (advancements.hasNext()) {
-            Advancement advancement = advancements.next();
-            AdvancementProgress progress = player.getAdvancementProgress(advancement);
-            List<String> desiredCriteria = section == null ? List.of() : section.getStringList(advancement.getKey().toString());
-            for (String criterion : new ArrayList<>(progress.getAwardedCriteria())) {
-                if (!desiredCriteria.contains(criterion)) {
-                    progress.revokeCriteria(criterion);
-                }
-            }
-            for (String criterion : desiredCriteria) {
-                try {
-                    if (!progress.getAwardedCriteria().contains(criterion)) {
-                        progress.awardCriteria(criterion);
-                    }
-                } catch (IllegalArgumentException ignored) {
-                    // Ignore criteria removed or renamed by newer Minecraft versions.
-                }
-            }
-        }
-    }
-
-    private void applyAdvancementsSilently(Player player, ConfigurationSection section) {
-        Map<World, Boolean> previousValues = temporarilyDisableAdvancementAnnouncements();
-        try {
-            applyAdvancements(player, section);
-            flushAdvancementUpdatesWithoutToasts(player);
-        } finally {
-            restoreAdvancementAnnouncements(previousValues);
-        }
-    }
-
-    private void flushAdvancementUpdatesWithoutToasts(Player player) {
-        try {
-            Object serverPlayer = player.getClass().getMethod("getHandle").invoke(player);
-            Object playerAdvancements = serverPlayer.getClass().getMethod("getAdvancements").invoke(serverPlayer);
-            for (Method method : playerAdvancements.getClass().getMethods()) {
-                Class<?>[] parameterTypes = method.getParameterTypes();
-                if (method.getName().equals("flushDirty")
-                        && parameterTypes.length == 2
-                        && parameterTypes[0].isInstance(serverPlayer)
-                        && parameterTypes[1] == boolean.class) {
-                    method.invoke(playerAdvancements, serverPlayer, false);
-                    return;
-                }
-            }
-        } catch (ReflectiveOperationException | SecurityException ignored) {
-            // Older Bukkit implementations flush advancement changes normally.
-        }
-    }
-
-    private Map<World, Boolean> temporarilyDisableAdvancementAnnouncements() {
-        Map<World, Boolean> previousValues = new HashMap<>();
-        GameRule<Boolean> advancementAnnouncementRule = resolveBooleanGameRule("SHOW_ADVANCEMENT_MESSAGES", "ANNOUNCE_ADVANCEMENTS");
-        if (advancementAnnouncementRule == null) {
-            return previousValues;
-        }
-        for (World world : Bukkit.getWorlds()) {
-            Boolean currentValue = world.getGameRuleValue(advancementAnnouncementRule);
-            if (currentValue == null) {
-                continue;
-            }
-            previousValues.put(world, currentValue);
-            if (currentValue) {
-                world.setGameRule(advancementAnnouncementRule, false);
-            }
-        }
-        return previousValues;
-    }
-
-    private void restoreAdvancementAnnouncements(Map<World, Boolean> previousValues) {
-        GameRule<Boolean> advancementAnnouncementRule = resolveBooleanGameRule("SHOW_ADVANCEMENT_MESSAGES", "ANNOUNCE_ADVANCEMENTS");
-        if (advancementAnnouncementRule == null) {
-            return;
-        }
-        for (Map.Entry<World, Boolean> entry : previousValues.entrySet()) {
-            entry.getKey().setGameRule(advancementAnnouncementRule, entry.getValue());
-        }
-    }
-
     private ItemStack[] readItemArray(YamlConfiguration yaml, String path, int expectedSize) {
         List<?> list = yaml.getList(path, List.of());
         ItemStack[] result = new ItemStack[expectedSize];
@@ -297,21 +212,4 @@ public class PlayerStateService {
         return null;
     }
 
-    @SuppressWarnings("unchecked")
-    private GameRule<Boolean> resolveBooleanGameRule(String... fieldNames) {
-        for (String fieldName : fieldNames) {
-            try {
-                Object value = GameRule.class.getField(fieldName).get(null);
-                // Paper 26.3 exposes GameRule as a class, while Spigot 26.x exposes it as an
-                // interface. Class#isInstance works with both without emitting an incompatible
-                // invokeinterface/invokevirtual call for GameRule#getType.
-                if (GameRule.class.isInstance(value)) {
-                    return (GameRule<Boolean>) value;
-                }
-            } catch (NoSuchFieldException | IllegalAccessException ignored) {
-                // Try the next Bukkit gamerule name for cross-version support.
-            }
-        }
-        return null;
-    }
 }

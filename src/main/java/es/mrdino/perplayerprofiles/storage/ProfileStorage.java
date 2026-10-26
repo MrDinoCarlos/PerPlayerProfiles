@@ -2,6 +2,7 @@ package es.mrdino.perplayerprofiles.storage;
 
 import es.mrdino.perplayerprofiles.model.AccountData;
 import es.mrdino.perplayerprofiles.model.ProfileMeta;
+import es.mrdino.perplayerprofiles.config.ConfigFiles;
 import java.io.File;
 import java.io.IOException;
 import java.util.UUID;
@@ -11,6 +12,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public class ProfileStorage {
     private final File accountsFolder;
+    private final java.util.Map<UUID, String> knownNames = new java.util.HashMap<>();
+    private boolean namesIndexed;
 
     public ProfileStorage(JavaPlugin plugin) {
         this.accountsFolder = new File(plugin.getDataFolder(), "accounts");
@@ -21,17 +24,26 @@ public class ProfileStorage {
 
     public AccountData loadAccount(UUID uuid) {
         File file = accountFile(uuid);
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+        YamlConfiguration yaml = readYaml(file);
         AccountData account = new AccountData();
+        account.setPlayerName(yaml.getString("player-name"));
         account.setMasterPasswordHash(yaml.getString("master-password-hash", null));
         account.setLastActiveProfileName(yaml.getString("last-active-profile", null));
+        account.setMenuMode(yaml.getString("menu-mode", "AUTO"));
+        account.setPreferredLanguage(yaml.getString("language", "auto"));
 
         ConfigurationSection profiles = yaml.getConfigurationSection("profiles");
         if (profiles != null) {
             for (String profileName : profiles.getKeys(false)) {
                 ConfigurationSection section = profiles.getConfigurationSection(profileName);
                 if (section != null) {
-                    account.putProfile(ProfileMeta.fromSection(profileName, section));
+                    ProfileMeta profile = ProfileMeta.fromSection(profileName, section);
+                    if (!profile.hasPlaytimeStatistics()) {
+                        YamlConfiguration state = loadProfileState(uuid, profileName);
+                        if (state.contains("statistics")) profile.initializeStatistics(state.getLong("statistics.PLAY_ONE_MINUTE") * 50L,
+                                state.getInt("level"), state.getInt("statistics.DEATHS"), state.getInt("statistics.MOB_KILLS"), state.getInt("statistics.PLAYER_KILLS"));
+                    }
+                    account.putProfile(profile);
                 }
             }
         }
@@ -42,8 +54,12 @@ public class ProfileStorage {
     public void saveAccount(UUID uuid, AccountData account) {
         File file = accountFile(uuid);
         YamlConfiguration yaml = new YamlConfiguration();
+        yaml.set("player-name", account.getPlayerName());
+        if (account.getPlayerName() != null) knownNames.put(uuid, account.getPlayerName());
         yaml.set("master-password-hash", account.getMasterPasswordHash());
         yaml.set("last-active-profile", account.getLastActiveProfileName());
+        yaml.set("menu-mode", account.getMenuMode());
+        yaml.set("language", account.getPreferredLanguage());
         for (ProfileMeta profile : account.getProfiles().values()) {
             ConfigurationSection section = yaml.createSection("profiles." + profile.getName());
             profile.saveTo(section);
@@ -51,8 +67,25 @@ public class ProfileStorage {
         saveYaml(file, yaml);
     }
 
+    public boolean hasAccount(UUID uuid) { return accountFile(uuid).isFile(); }
+
+    public java.util.Map<UUID, String> knownPlayerNames() {
+        if (!namesIndexed) {
+            File[] files = accountsFolder.listFiles((directory, name) -> name.endsWith(".yml"));
+            if (files != null) for (File file : files) {
+                UUID uuid;
+                try { uuid = UUID.fromString(file.getName().substring(0, file.getName().length() - 4)); }
+                catch (IllegalArgumentException invalid) { continue; }
+                String name = readYaml(file).getString("player-name");
+                if (name != null) knownNames.put(uuid, name);
+            }
+            namesIndexed = true;
+        }
+        return java.util.Map.copyOf(knownNames);
+    }
+
     public YamlConfiguration loadProfileState(UUID uuid, String profileName) {
-        return YamlConfiguration.loadConfiguration(profileFile(uuid, profileName));
+        return readYaml(profileFile(uuid, profileName));
     }
 
     public void saveProfileState(UUID uuid, String profileName, YamlConfiguration yaml) {
@@ -97,9 +130,14 @@ public class ProfileStorage {
 
     private void saveYaml(File file, YamlConfiguration yaml) {
         try {
-            yaml.save(file);
+            ConfigFiles.save(file.toPath(), yaml);
         } catch (IOException e) {
             throw new IllegalStateException("Could not save " + file.getAbsolutePath(), e);
         }
+    }
+
+    private YamlConfiguration readYaml(File file) {
+        try { return ConfigFiles.load(file.toPath()); }
+        catch (IOException failure) { throw new IllegalStateException("Could not safely read " + file.getAbsolutePath(), failure); }
     }
 }

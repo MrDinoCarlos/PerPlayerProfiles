@@ -7,8 +7,8 @@ public class TimeLimitDraft {
 
     public TimeLimitDraft(String profileName, long maxMinutes, long renewHours) {
         this.profileName = profileName;
-        this.maxMinutes = Math.max(0L, maxMinutes);
-        this.renewHours = Math.max(0L, renewHours);
+        this.maxMinutes = Math.max(0L, Math.min(525_600L, maxMinutes));
+        this.renewHours = Math.max(0L, Math.min(87_600L, renewHours));
     }
 
     public String getProfileName() {
@@ -24,10 +24,10 @@ public class TimeLimitDraft {
     }
 
     public void addMaxMinutes(long amount) {
-        maxMinutes = Math.max(0L, maxMinutes + amount);
+        maxMinutes = Math.max(0L, Math.min(525_600L, maxMinutes + amount));
     }
 
     public void addRenewHours(long amount) {
-        renewHours = Math.max(0L, renewHours + amount);
+        renewHours = Math.max(0L, Math.min(87_600L, renewHours + amount));
     }
 }

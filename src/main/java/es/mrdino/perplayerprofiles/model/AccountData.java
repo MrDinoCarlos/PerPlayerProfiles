@@ -6,11 +6,23 @@ import java.util.Map;
 public class AccountData {
     private String masterPasswordHash;
     private String lastActiveProfileName;
+    private String menuMode = "AUTO";
+    private String preferredLanguage = "auto";
+    private String playerName;
     private final Map<String, ProfileMeta> profiles = new LinkedHashMap<>();
 
     public String getMasterPasswordHash() {
         return masterPasswordHash;
     }
+
+    public String getMenuMode() { return menuMode; }
+    public String getPlayerName() { return playerName; }
+    public void setPlayerName(String name) { playerName = name; }
+    public String getPreferredLanguage() { return preferredLanguage; }
+    public void setPreferredLanguage(String language) {
+        preferredLanguage = language == null ? "auto" : language.toLowerCase(java.util.Locale.ROOT);
+    }
+    public void setMenuMode(String mode) { menuMode = mode == null ? "AUTO" : mode.toUpperCase(java.util.Locale.ROOT); }
 
     public void setMasterPasswordHash(String masterPasswordHash) {
         this.masterPasswordHash = masterPasswordHash;
@@ -97,6 +109,6 @@ public class AccountData {
     }
 
     public static String normalizeName(String name) {
-        return name == null ? "" : name.toLowerCase().trim();
+        return name == null ? "" : name.toLowerCase(java.util.Locale.ROOT).trim();
     }
 }

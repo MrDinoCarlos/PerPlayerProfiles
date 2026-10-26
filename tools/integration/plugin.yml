@@ -1,0 +1,5 @@
+name: PppCommandProbe
+version: 1.0
+main: CommandCompletionProbe
+api-version: '1.20'
+depend: [PerPlayerProfiles]

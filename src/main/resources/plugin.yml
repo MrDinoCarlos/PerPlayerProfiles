@@ -6,10 +6,12 @@ author: MrDino
 description: Multiple server profiles per Minecraft account.
 softdepend:
   - ServerPassword
+  - ViaVersion
+  - Geyser-Spigot
 commands:
   profiles:
     description: Manage player profiles.
-    usage: /profiles help
+    usage: /profiles [gui|list|create|use|settings|icon|mode|language|delete|lock|unlock|setmasterpassword|setlimit|admin|reload|help]
     aliases:
       - ppp
       - pprofile

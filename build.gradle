@@ -1,0 +1,211 @@
+plugins { id 'java' }
+
+group = 'es.mrdino'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/' }
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+configurations {
+    commandApi
+    dialogCompileOnly
+    minecraft121CompileOnly
+    minecraft261CompileOnly
+    minecraft262CompileOnly
+    minecraft263CompileOnly
+    paper26CompileOnly
+}
+
+configurations.compileOnly.extendsFrom(configurations.commandApi)
+configurations.testImplementation.extendsFrom(configurations.commandApi)
+
+dependencies {
+    commandApi 'com.mojang:brigadier:1.1.8'
+    compileOnly 'org.spigotmc:spigot-api:1.20.1-R0.1-SNAPSHOT'
+    dialogCompileOnly 'io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT'
+    minecraft121CompileOnly 'org.spigotmc:spigot-api:1.21-R0.1-SNAPSHOT'
+    minecraft261CompileOnly 'org.spigotmc:spigot-api:26.1-R0.1-SNAPSHOT'
+    minecraft262CompileOnly 'org.spigotmc:spigot-api:26.2-R0.1-SNAPSHOT'
+    minecraft263CompileOnly 'org.spigotmc:spigot-api:26.3-R0.1-SNAPSHOT'
+    paper26CompileOnly 'io.papermc.paper:paper-api:26.3.build.223-stable'
+    testImplementation 'org.spigotmc:spigot-api:1.20.1-R0.1-SNAPSHOT'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testImplementation 'org.mockito:mockito-core:5.14.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release = 17 }
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+tasks.withType(Jar).configureEach {
+    archiveBaseName = 'PerPlayerProfiles'
+    reproducibleFileOrder = true
+    preserveFileTimestamps = false
+    from('LICENSE', 'NOTICE')
+}
+
+processResources {
+    inputs.properties(version: project.version, apiVersion: '1.20')
+    filesMatching('plugin.yml') { expand(version: project.version, apiVersion: '1.20') }
+}
+tasks.jar { archiveClassifier = '1.20.X' }
+
+def dialogs = tasks.register('compileDialogJava', JavaCompile) {
+    source = fileTree('src/dialog/java')
+    classpath = configurations.dialogCompileOnly + sourceSets.main.output
+    destinationDirectory = layout.buildDirectory.dir('classes/java/dialog')
+    options.release = 21
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(21) }
+    dependsOn tasks.named('classes')
+}
+def resources121 = tasks.register('process121Resources', Copy) {
+    inputs.properties(version: project.version, apiVersion: '1.21')
+    from sourceSets.main.resources
+    into layout.buildDirectory.dir('resources/121')
+    filesMatching('plugin.yml') { expand(version: project.version, apiVersion: '1.21') }
+}
+def jar121 = tasks.register('jar121', Jar) {
+    archiveClassifier = '1.21.X'
+    from tasks.named('compileMinecraft121Java')
+    from dialogs
+    from resources121
+    exclude 'previous-compilation-data.bin'
+}
+tasks.register('compileMinecraft121Java', JavaCompile) {
+    source = sourceSets.main.java
+    classpath = configurations.minecraft121CompileOnly + configurations.commandApi
+    destinationDirectory = layout.buildDirectory.dir('classes/java/minecraft121')
+    options.release = 21
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(21) }
+}
+def releases = [tasks.named('jar'), jar121]
+['261': '26.1', '262': '26.2', '263': '26.3'].each { suffix, api ->
+    def compiled = tasks.register("compileMinecraft${suffix}Java", JavaCompile) {
+        source = sourceSets.main.java
+        classpath = configurations.getByName("minecraft${suffix}CompileOnly") + configurations.commandApi
+        destinationDirectory = layout.buildDirectory.dir("classes/java/minecraft${suffix}")
+        options.release = 25
+        javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(25) }
+    }
+    def resources = tasks.register("processMinecraft${suffix}Resources", Copy) {
+        inputs.properties(version: project.version, apiVersion: api)
+        from sourceSets.main.resources
+        into layout.buildDirectory.dir("resources/minecraft${suffix}")
+        filesMatching('plugin.yml') { expand(version: project.version, apiVersion: api) }
+    }
+    releases.add(tasks.register("jarMinecraft${suffix}", Jar) {
+        archiveClassifier = "${api}.X"
+        from compiled
+        from dialogs
+        from resources
+        exclude 'previous-compilation-data.bin'
+    })
+    tasks.named('check') { dependsOn compiled }
+}
+tasks.named('check') { dependsOn dialogs, 'compileMinecraft121Java', 'compilePaper26Compatibility' }
+tasks.named('assemble') { dependsOn releases }
+
+tasks.register('compilePaper26Compatibility', JavaCompile) {
+    source = sourceSets.main.java
+    classpath = configurations.paper26CompileOnly + configurations.commandApi
+    destinationDirectory = layout.buildDirectory.dir('classes/java/paper26check')
+    options.release = 25
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(25) }
+}
+
+sourceSets {
+    dialogTest {
+        compileClasspath += sourceSets.main.output + files(dialogs)
+        runtimeClasspath += sourceSets.main.output + files(dialogs)
+    }
+}
+def dialogBackend = tasks.register('paperDialogBackend', Zip) {
+    archiveBaseName = 'paper-dialog-test-backend'
+    archiveVersion = ''
+    archiveExtension = 'jar'
+    destinationDirectory = layout.buildDirectory.dir('verification')
+    from { providers.gradleProperty('paperServerJar').isPresent() ? zipTree(file(providers.gradleProperty('paperServerJar').get())) : files() }
+    include 'io/papermc/paper/registry/data/dialog/**'
+    include 'net/minecraft/commands/functions/StringTemplate.class'
+    include 'META-INF/services/io.papermc.paper.registry.data.dialog.DialogInstancesProvider'
+    onlyIf { providers.gradleProperty('paperServerJar').isPresent() }
+}
+dependencies {
+    dialogTestImplementation 'io.papermc.paper:paper-api:26.3.build.223-stable'
+    dialogTestImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    dialogTestImplementation 'org.mockito:mockito-core:5.14.2'
+    dialogTestRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    dialogTestRuntimeOnly files(dialogBackend)
+}
+tasks.named('compileDialogTestJava', JavaCompile) {
+    options.release = 25
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(25) }
+}
+tasks.register('dialogTest', Test) {
+    description = 'Checks dialog construction against a real Paper implementation using -PpaperServerJar.'
+    dependsOn tasks.named('test')
+    testClassesDirs = sourceSets.dialogTest.output.classesDirs
+    classpath = sourceSets.dialogTest.runtimeClasspath
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
+    useJUnitPlatform()
+    onlyIf { providers.gradleProperty('paperServerJar').isPresent() }
+}
+tasks.named('check') { dependsOn 'dialogTest' }
+
+def sourceDistribution = tasks.register('sourceDistribution', Zip) {
+    archiveBaseName = 'PerPlayerProfiles'
+    archiveClassifier = 'sources'
+    destinationDirectory = layout.buildDirectory.dir('distributions')
+    from('src') { into 'src' }
+    from('gradle') { into 'gradle' }
+    from('tools') { into 'tools' }
+    from 'build.gradle', 'settings.gradle', 'gradlew', 'gradlew.bat', 'README.md', 'CHANGELOG.md', 'ROADMAP.md', 'LICENSE', 'NOTICE', '.gitignore'
+}
+
+def commandProbe = tasks.register('compileCommandProbe', JavaCompile) {
+    description = 'Builds the separate loopback integration probe, never included in runtime plugin JARs.'
+    source = fileTree('tools/integration') { include '*.java' }
+    classpath = sourceSets.main.compileClasspath
+    destinationDirectory = layout.buildDirectory.dir('classes/java/commandProbe')
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(17) }
+}
+tasks.register('commandProbeJar', Jar) {
+    archiveBaseName = 'PPP-CommandCompletionProbe'
+    destinationDirectory = layout.buildDirectory.dir('integration/tools')
+    from commandProbe
+    from('tools/integration/plugin.yml')
+}
+
+def progressProbe = tasks.register('compileProgressProbe', JavaCompile) {
+    description = 'Builds the separate saved-progress integration probe for an isolated loopback server.'
+    source = fileTree('tools/integration/progress') { include '*.java' }
+    classpath = sourceSets.main.compileClasspath
+    destinationDirectory = layout.buildDirectory.dir('classes/java/progressProbe')
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(17) }
+}
+
+tasks.register('progressProbeJar', Jar) {
+    archiveBaseName = 'PPP-ProgressNotificationProbe'
+    destinationDirectory = layout.buildDirectory.dir('integration/tools')
+    from progressProbe
+    from('tools/integration/progress/plugin.yml')
+}
+
+tasks.register('exportRelease', Copy) {
+    dependsOn tasks.named('build')
+    into layout.projectDirectory.dir('exports/1.0.0')
+    from(releases)
+    from(sourceDistribution)
+    from('README.md', 'CHANGELOG.md', 'ROADMAP.md', 'LICENSE', 'NOTICE')
+    doLast {
+        def directory = layout.projectDirectory.dir('exports/1.0.0').asFile
+        def checksums = directory.listFiles().findAll { it.name.endsWith('.jar') || it.name.endsWith('.zip') }.sort { it.name }.collect { file ->
+            def digest = java.security.MessageDigest.getInstance('SHA-256').digest(file.bytes).encodeHex().toString()
+            "${digest}  ${file.name}"
+        }
+        new File(directory, 'SHA256SUMS.txt').text = checksums.join('\n') + '\n'
+    }
+}

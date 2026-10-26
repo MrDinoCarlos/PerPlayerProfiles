@@ -1,0 +1,6 @@
+e8b903b767508cc1f2c5c7cfe59d976a104a9deb9713016887b7a0fde070f61c  PerPlayerProfiles-1.0.0-1.20.X.jar
+4f030015b8fe6cb6833ea5060c7fe74e3bafd8da3047ff122427cf88edf58d1b  PerPlayerProfiles-1.0.0-1.21.X.jar
+b2e7ec6561c7e1310f051104cbd2a6c18604873afc2ff946f7fe4326dfa2008d  PerPlayerProfiles-1.0.0-26.1.X.jar
+e37009c295ce5a35aef911005616cea3d06fe6219090f337a68ec9ea3c7a7757  PerPlayerProfiles-1.0.0-26.2.X.jar
+1613b72aac46257991a5f39ed3153278e51f8681a5d867534d21c558ab33a55c  PerPlayerProfiles-1.0.0-26.3.X.jar
+42bef9cd96bc8f7cad1d4b1a3bd9cff9dd3fef5fd65ed0ab899c8df465c3b9c7  PerPlayerProfiles-1.0.0-sources.zip

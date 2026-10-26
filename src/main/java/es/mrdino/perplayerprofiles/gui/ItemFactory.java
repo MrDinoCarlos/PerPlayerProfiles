@@ -54,12 +54,12 @@ public final class ItemFactory {
             return;
         }
         try {
-            String json = new String(Base64.getDecoder().decode(textureValue), StandardCharsets.UTF_8);
+            String json = new String(Base64.getDecoder().decode(HeadTextures.normalize(textureValue)), StandardCharsets.UTF_8);
             Matcher matcher = TEXTURE_URL_PATTERN.matcher(json);
             if (!matcher.find()) {
                 return;
             }
-            PlayerProfile profile = Bukkit.createPlayerProfile(UUID.randomUUID());
+            PlayerProfile profile = Bukkit.createPlayerProfile(UUID.nameUUIDFromBytes(textureValue.getBytes(StandardCharsets.UTF_8)));
             PlayerTextures textures = profile.getTextures();
             textures.setSkin(new URL(matcher.group(1)));
             profile.setTextures(textures);

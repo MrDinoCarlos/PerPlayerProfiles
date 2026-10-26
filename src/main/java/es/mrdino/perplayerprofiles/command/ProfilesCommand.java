@@ -24,10 +24,24 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length > 0 && args[0].equalsIgnoreCase("admin")) {
+            handleAdmin(sender, args);
+            return true;
+        }
+        if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
+            if (!sender.hasPermission("perplayerprofiles.admin")) { plugin.getLanguageService().send(sender, "no-permission"); return true; }
+            try { plugin.reloadPluginSettings(); plugin.getLanguageService().send(sender, "settings-reloaded"); }
+            catch (RuntimeException failure) {
+                plugin.getLogger().log(java.util.logging.Level.WARNING, "Could not reload plugin settings", failure);
+                plugin.getLanguageService().send(sender, "settings-reload-failed");
+            }
+            return true;
+        }
         if (!(sender instanceof Player player)) {
             plugin.getLanguageService().send(sender, "only-players");
             return true;
         }
+        if (!plugin.isProfileReady(player)) { plugin.send(player, "waiting-for-auth"); return true; }
         if (args.length == 0 || args[0].equalsIgnoreCase("gui")) {
             plugin.getProfileGuiManager().openMain(player);
             return true;
@@ -38,6 +52,12 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
         }
 
         String subCommand = args[0].toLowerCase(Locale.ROOT);
+        if (plugin.getProfileGuiManager().isSelectionRequired(player)
+                && !List.of("use", "switch", "list", "mode", "language", "lang", "settings", "info", "help").contains(subCommand)) {
+            plugin.send(player, "screen-selection-required");
+            plugin.getProfileGuiManager().openMain(player);
+            return true;
+        }
         switch (subCommand) {
             case "list" -> listProfiles(player);
             case "create" -> createProfile(player, args);
@@ -47,6 +67,17 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
             case "unlock" -> unlockProfile(player, args);
             case "setmasterpassword" -> setMasterPassword(player, args);
             case "setlimit" -> setLimit(player, args);
+            case "settings", "info" -> plugin.getProfileGuiManager().openProfileSettings(player, args.length > 1 ? args[1] : plugin.getActiveProfile(player));
+            case "icon", "icons" -> plugin.getProfileGuiManager().editIcon(player, args.length > 1 ? args[1] : plugin.getActiveProfile(player));
+            case "language", "lang" -> {
+                if (args.length == 1) plugin.getProfileGuiManager().openLanguagePicker(player);
+                else plugin.getProfileGuiManager().setLanguage(player, args[1]);
+            }
+            case "mode" -> {
+                if (args.length == 2 && List.of("auto", "modern", "legacy").contains(args[1].toLowerCase(Locale.ROOT)))
+                    plugin.getProfileGuiManager().setMenuMode(player, args[1]);
+                else plugin.send(player, "usage-mode");
+            }
             default -> sendHelp(player);
         }
         return true;
@@ -54,15 +85,32 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (!(sender instanceof Player player)) {
+        if (args.length == 1) {
+            List<String> options = new ArrayList<>();
+            if (sender instanceof Player) options.addAll(List.of("gui", "help", "list", "create", "use", "switch", "delete", "remove", "lock", "unlock", "setmasterpassword", "setlimit", "settings", "info", "icon", "icons", "mode", "language", "lang"));
+            if (sender.hasPermission("perplayerprofiles.admin")) options.addAll(List.of("reload", "admin"));
+            return filter(options, args[0]);
+        }
+        if (args.length > 1 && args[0].equalsIgnoreCase("admin")) {
+            if (!sender.hasPermission("perplayerprofiles.admin")) return List.of();
+            if (args.length == 2) return filter(List.of("resetpin", "removepin"), args[1]);
+            if (!List.of("resetpin", "removepin").contains(args[1].toLowerCase(Locale.ROOT))) return List.of();
+            if (args.length == 3) return filter(plugin.knownPlayerAccounts().values().stream().distinct().sorted().toList(), args[2]);
+            if (args.length == 4) {
+                UUID owner = plugin.resolveKnownAccount(args[2]);
+                return owner == null ? List.of() : filter(plugin.loadAccount(owner).getProfiles().values().stream().map(ProfileMeta::getName).toList(), args[3]);
+            }
             return List.of();
         }
-        if (args.length == 1) {
-            return filter(List.of("gui", "help", "list", "create", "use", "delete", "lock", "unlock", "setmasterpassword", "setlimit"), args[0]);
+        if (!(sender instanceof Player player)) return List.of();
+        String subcommand = args[0].toLowerCase(Locale.ROOT);
+        if (args.length == 2 && subcommand.equals("mode")) return filter(List.of("auto", "modern", "legacy"), args[1]);
+        if (args.length == 2 && List.of("language", "lang").contains(subcommand)) return filter(es.mrdino.perplayerprofiles.lang.LanguageService.languageOptions(), args[1]);
+        if (args.length == 2 && List.of("use", "switch", "delete", "remove", "lock", "unlock", "setlimit", "settings", "info", "icon", "icons").contains(subcommand)) {
+            return filter(plugin.loadAccount(player.getUniqueId()).getProfiles().values().stream().map(ProfileMeta::getName).toList(), args[1]);
         }
-        if (args.length == 2 && List.of("use", "switch", "delete", "remove", "lock", "unlock", "setlimit").contains(args[0].toLowerCase(Locale.ROOT))) {
-            return filter(new ArrayList<>(plugin.loadAccount(player.getUniqueId()).getProfiles().keySet()), args[1]);
-        }
+        if (subcommand.equals("setlimit") && args.length == 3) return filter(List.of("0", "15", "30", "60", "90", "120", "180"), args[2]);
+        if (subcommand.equals("setlimit") && args.length == 4) return filter(List.of("0", "1", "6", "12", "24", "48", "168"), args[3]);
         return List.of();
     }
 
@@ -75,13 +123,29 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
         plugin.send(player, "profiles-list", "profiles", profiles);
     }
 
+    private void handleAdmin(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("perplayerprofiles.admin")) { plugin.getLanguageService().send(sender, "no-permission"); return; }
+        if (sender instanceof Player player && !plugin.isProfileReady(player)) { plugin.send(player, "waiting-for-auth"); return; }
+        if (args.length != 4 || !List.of("resetpin", "removepin").contains(args[1].toLowerCase(Locale.ROOT))) {
+            plugin.getLanguageService().send(sender, "usage-admin-pin"); return;
+        }
+        UUID owner = plugin.resolveKnownAccount(args[2]);
+        if (owner == null) { plugin.getLanguageService().send(sender, "admin-account-not-found"); return; }
+        try { new es.mrdino.perplayerprofiles.security.ProfileRecovery(plugin).recover(sender, owner, args[3], args[1].equalsIgnoreCase("resetpin")); }
+        catch (RuntimeException failure) {
+            plugin.getLogger().log(java.util.logging.Level.WARNING, "Could not save administrative PIN recovery", failure);
+            plugin.getLanguageService().send(sender, "admin-pin-failed");
+        }
+    }
+
     private void createProfile(Player player, String[] args) {
         if (args.length < 2) {
-            plugin.send(player, "usage-create");
+            plugin.getProfileGuiManager().createFromMenu(player);
             return;
         }
         AccountData account = plugin.loadAccount(player.getUniqueId());
-        if (!canUseMasterAction(player, account, args, account.hasMasterPassword() ? args.length - 1 : -1)) {
+        if (!plugin.isMasterProfile(player, plugin.getActiveProfile(player))) { plugin.send(player, "master-profile-required"); return; }
+        if (plugin.isMasterPinRequiredToCreateProfiles() && !canUseMasterAction(player, account, args, args.length >= 3 ? args.length - 1 : -1)) {
             return;
         }
         String name = normalizeProfileName(args[1]);
@@ -99,7 +163,7 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
         }
         ProfileMeta profile = new ProfileMeta(name);
         profile.ensureVirtualUuid(player.getUniqueId());
-        if ((!account.hasMasterPassword() && args.length >= 3) || (account.hasMasterPassword() && args.length >= 4)) {
+        if (args.length >= 3 && (!plugin.isMasterPinRequiredToCreateProfiles() || !account.hasMasterPassword() || args.length >= 4)) {
             if (!validPassword(player, args[2])) {
                 return;
             }
@@ -123,7 +187,8 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
             plugin.send(player, "profile-not-found");
             return;
         }
-        if (profile.hasPassword() && (args.length < 3 || !canUseProfilePin(account, profile, args[2]))) {
+        if (profile.isPasswordResetRequired() || profile.hasPassword() && args.length < 3) { plugin.getProfileGuiManager().selectProfile(player, profile.getName()); return; }
+        if (profile.hasPassword() && !plugin.getPinSecurity().profile(player, profile, args[2], true)) {
             plugin.send(player, "profile-password-wrong");
             return;
         }
@@ -194,7 +259,7 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
             plugin.send(player, "profile-not-found");
             return;
         }
-        if (!account.hasMasterPassword() && !PasswordHasher.verify(args[2], profile.getPasswordHash())) {
+        if (!account.hasMasterPassword() && profile.hasPassword() && !plugin.getPinSecurity().profile(player, profile, args[2], false)) {
             plugin.send(player, "password-wrong");
             return;
         }
@@ -237,10 +302,12 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
         try {
             long maxMinutes = Long.parseLong(args[2]);
             long renewHours = Long.parseLong(args[3]);
-            profile.setTimeLimit(maxMinutes * 60_000L, renewHours * 3_600_000L);
+            if (maxMinutes < 0 || renewHours < 0) throw new NumberFormatException();
+            plugin.saveActiveProfile(player);
+            profile.setTimeLimit(Math.multiplyExact(maxMinutes, 60_000L), Math.multiplyExact(renewHours, 3_600_000L));
             plugin.saveAccount(player.getUniqueId());
             plugin.send(player, "limit-applied", "profile", profile.getName(), "minutes", maxMinutes, "hours", renewHours);
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException | ArithmeticException e) {
             plugin.send(player, "time-must-be-numbers");
         }
     }
@@ -253,7 +320,7 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
         if (!account.hasMasterPassword()) {
             return true;
         }
-        if (passwordIndex < 0 || args.length <= passwordIndex || !PasswordHasher.verify(args[passwordIndex], account.getMasterPasswordHash())) {
+        if (passwordIndex < 0 || args.length <= passwordIndex || !plugin.getPinSecurity().master(player, args[passwordIndex])) {
             plugin.send(player, "master-password-required");
             return false;
         }
@@ -276,11 +343,6 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    private boolean canUseProfilePin(AccountData account, ProfileMeta profile, String pin) {
-        return PasswordHasher.verify(pin, profile.getPasswordHash())
-                || (account.hasMasterPassword() && PasswordHasher.verify(pin, account.getMasterPasswordHash()));
-    }
-
     private String normalizeProfileName(String input) {
         String name = input == null ? "" : input.trim();
         if (name.length() < 2 || name.length() > 16 || !name.matches("[A-Za-z0-9_]+")) {
@@ -297,6 +359,11 @@ public class ProfilesCommand implements CommandExecutor, TabCompleter {
         plugin.send(player, "help-lock");
         plugin.send(player, "help-master-password");
         plugin.send(player, "help-limit");
+        plugin.send(player, "help-settings");
+        plugin.send(player, "help-icon");
+        plugin.send(player, "help-mode");
+        plugin.send(player, "help-language");
+        if (player.hasPermission("perplayerprofiles.admin")) { plugin.send(player, "help-reload"); plugin.send(player, "help-admin-pin"); }
     }
 
     private List<String> filter(List<String> options, String prefix) {
