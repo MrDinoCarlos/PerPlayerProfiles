@@ -1,8 +1,11 @@
 package es.mrdino.perplayerprofiles.state;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.function.Supplier;
+import java.util.logging.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -18,11 +21,26 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 
 public class PlayerStateService {
+    private static final Method PAPER_RESPAWN_LOCATION = findPlayerMethod("getRespawnLocation", boolean.class);
+    private static final Method PAPER_POTENTIAL_BED_LOCATION = findPlayerMethod("getPotentialBedLocation");
+
     public YamlConfiguration capture(Player player) {
+        return capture(player, YamlConfiguration::new);
+    }
+
+    public YamlConfiguration capture(Player player, Supplier<YamlConfiguration> previousState) {
         YamlConfiguration yaml = new YamlConfiguration();
         yaml.set("location", player.getLocation());
-        yaml.set("bed-spawn", player.getBedSpawnLocation());
-        yaml.set("respawn-location", player.getBedSpawnLocation());
+        Location respawn;
+        try {
+            respawn = captureRespawnLocation(player);
+        } catch (IllegalStateException unavailable) {
+            Bukkit.getLogger().log(Level.WARNING, "[PerPlayerProfiles] Could not read the respawn point for "
+                    + player.getName() + "; retaining the last saved point if present", unavailable);
+            respawn = readRespawnLocation(previousState.get());
+        }
+        yaml.set("bed-spawn", respawn);
+        yaml.set("respawn-location", respawn);
         yaml.set("inventory.contents", player.getInventory().getContents());
         yaml.set("inventory.armor", player.getInventory().getArmorContents());
         yaml.set("inventory.extra", player.getInventory().getExtraContents());
@@ -45,6 +63,33 @@ public class PlayerStateService {
         ProfileProgress.capture(player, yaml);
         saveAdvancements(player, yaml.createSection("advancements"));
         return yaml;
+    }
+
+    private static Method findPlayerMethod(String name, Class<?>... parameterTypes) {
+        try {
+            return Player.class.getMethod(name, parameterTypes);
+        } catch (NoSuchMethodException ignored) {
+            return null;
+        }
+    }
+
+    private Location captureRespawnLocation(Player player) {
+        // Paper exposes the configured point without loading or validating its chunk.
+        try {
+            if (PAPER_RESPAWN_LOCATION != null) {
+                return (Location) PAPER_RESPAWN_LOCATION.invoke(player, false);
+            }
+            if (PAPER_POTENTIAL_BED_LOCATION != null) {
+                return (Location) PAPER_POTENTIAL_BED_LOCATION.invoke(player);
+            }
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Could not read the configured Paper respawn point", failure);
+        }
+        return player.getBedSpawnLocation();
+    }
+
+    private Location readRespawnLocation(YamlConfiguration yaml) {
+        return yaml.getLocation("respawn-location", yaml.getLocation("bed-spawn"));
     }
 
     public void apply(Player player, YamlConfiguration yaml) {
@@ -87,8 +132,7 @@ public class PlayerStateService {
         if (location != null && location.getWorld() != null) {
             player.teleport(location);
         }
-        Location bedSpawn = yaml.getLocation("respawn-location", yaml.getLocation("bed-spawn"));
-        player.setBedSpawnLocation(bedSpawn, true);
+        player.setBedSpawnLocation(readRespawnLocation(yaml), true);
         player.updateInventory();
     }
 

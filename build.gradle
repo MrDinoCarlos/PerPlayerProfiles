@@ -1,7 +1,7 @@
 plugins { id 'java' }
 
 group = 'es.mrdino'
-version = '1.0.0'
+version = '1.0.1'
 
 repositories {
     mavenCentral()
@@ -195,13 +195,14 @@ tasks.register('progressProbeJar', Jar) {
 }
 
 tasks.register('exportRelease', Copy) {
+    def releaseDirectory = layout.projectDirectory.dir("exports/${project.version}")
     dependsOn tasks.named('build')
-    into layout.projectDirectory.dir('exports/1.0.0')
+    into releaseDirectory
     from(releases)
     from(sourceDistribution)
     from('README.md', 'CHANGELOG.md', 'ROADMAP.md', 'LICENSE', 'NOTICE')
     doLast {
-        def directory = layout.projectDirectory.dir('exports/1.0.0').asFile
+        def directory = releaseDirectory.asFile
         def checksums = directory.listFiles().findAll { it.name.endsWith('.jar') || it.name.endsWith('.zip') }.sort { it.name }.collect { file ->
             def digest = java.security.MessageDigest.getInstance('SHA-256').digest(file.bytes).encodeHex().toString()
             "${digest}  ${file.name}"

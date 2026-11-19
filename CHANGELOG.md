@@ -1,3 +1,8 @@
+# PerPlayerProfiles 1.0.1
+
+- Save the configured respawn point on Paper without loading its chunk, including when the server is shutting down.
+- Keep the last saved respawn point if the lookup fails. Continue saving other online profiles if a player's shutdown save fails.
+
 # PerPlayerProfiles 1.0.0
 
 - Restore advancement and recipe snapshots silently on login and character changes, including older clients without the advancement notification flag. Avoid repeated XP/loot/functions and discovery/completion events; keep future genuine unlocks, trigger listeners, partial criteria and per-character recipes working without changing world gamerules.

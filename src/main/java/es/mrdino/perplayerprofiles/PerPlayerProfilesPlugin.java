@@ -107,7 +107,14 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
         if (updateChecker != null) updateChecker.shutdown();
         if (profileGuiManager != null) profileGuiManager.shutdown();
         if (storage == null) return;
-        saveOnlinePlayers(true);
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            try {
+                saveActiveProfileForTransition(player);
+            } catch (RuntimeException failure) {
+                getLogger().log(java.util.logging.Level.SEVERE,
+                        "Could not finish saving the active profile for " + player.getName() + " during shutdown", failure);
+            }
+        }
         for (Map.Entry<UUID, AccountData> entry : accounts.entrySet()) {
             storage.saveAccount(entry.getKey(), entry.getValue());
         }
@@ -289,7 +296,8 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
                     player.getStatistic(Statistic.MOB_KILLS), player.getStatistic(Statistic.PLAYER_KILLS));
             account.setLastActiveProfileName(profileName);
         }
-        YamlConfiguration snapshot = stateService.capture(player);
+        YamlConfiguration snapshot = stateService.capture(player,
+                () -> storage.loadProfileState(player.getUniqueId(), profileName));
         if (profile != null) profile.updateTypedStatistics(snapshot.getConfigurationSection("statistics-typed"));
         storage.saveProfileState(player.getUniqueId(), profileName, snapshot);
         storage.saveAccount(player.getUniqueId(), account);
@@ -945,12 +953,8 @@ public class PerPlayerProfilesPlugin extends JavaPlugin implements Listener {
     }
 
     private void saveOnlinePlayers() {
-        saveOnlinePlayers(false);
-    }
-
-    private void saveOnlinePlayers(boolean criticalTransition) {
         for (Player player : Bukkit.getOnlinePlayers()) {
-            saveActiveProfile(player, criticalTransition);
+            saveActiveProfile(player);
         }
     }
 

@@ -1,6 +1,6 @@
 # PerPlayerProfiles
 
-PerPlayerProfiles 1.0.0 lets one Minecraft account use multiple independent server profiles on Bukkit, Spigot and Paper. Separate exports cover Minecraft 1.20.X, 1.21.X, 26.1.X, 26.2.X and 26.3.X.
+PerPlayerProfiles 1.0.1 lets one Minecraft account use multiple independent server profiles on Bukkit, Spigot and Paper. Separate exports cover Minecraft 1.20.X, 1.21.X, 26.1.X, 26.2.X and 26.3.X.
 
 Each profile can have its own inventory, experience, location, statistics, play-time limits, PIN, visual icon, respawn point, and configuration. It is designed for servers where one account may be shared by different people, used for different characters, or controlled with time-limited access.
 
@@ -80,13 +80,13 @@ plugins/PerPlayerProfiles/config.yml
 
 ### Jar Variants
 
-Run `gradlew.bat clean exportRelease` with JDKs 17, 21 and 25 installed. The compiled JARs appear in `build/libs/`; ready-to-share files, sources, license and SHA-256 checksums appear in `exports/1.0.0/`:
+Run `gradlew.bat clean exportRelease` with JDKs 17, 21 and 25 installed. The compiled JARs appear in `build/libs/`; ready-to-share files, sources, license and SHA-256 checksums appear in `exports/1.0.1/`.
 
-- `PerPlayerProfiles-1.0.0-1.20.X.jar`
-- `PerPlayerProfiles-1.0.0-1.21.X.jar`
-- `PerPlayerProfiles-1.0.0-26.1.X.jar`
-- `PerPlayerProfiles-1.0.0-26.2.X.jar`
-- `PerPlayerProfiles-1.0.0-26.3.X.jar`
+- `PerPlayerProfiles-1.0.1-1.20.X.jar`
+- `PerPlayerProfiles-1.0.1-1.21.X.jar`
+- `PerPlayerProfiles-1.0.1-26.1.X.jar`
+- `PerPlayerProfiles-1.0.1-26.2.X.jar`
+- `PerPlayerProfiles-1.0.1-26.3.X.jar`
 
 ## Commands
 
